@@ -15,6 +15,10 @@
 
 [Live Demo](https://osirisai.live) · [Report Bug](https://github.com/simplifaisoul/osiris/issues) · [Request Feature](https://github.com/simplifaisoul/osiris/issues) · [Join Discord](https://discord.gg/umBykEpb98)
 
+[![DINGIR rebrand preview](https://img.shields.io/badge/DINGIR_rebrand_preview-dingir--osint.fly.dev-D4AF37?style=for-the-badge)](https://dingir-osint.fly.dev/)
+
+*Quick preview of the OSIRIS → DINGIR rebrand (visible branding only for now — full internal rename is separate follow-up work). Some panels (flights/weather/markets) may show empty/loading — this deploy doesn't yet have all the third-party API keys configured.*
+
 </div>
 
 ---
