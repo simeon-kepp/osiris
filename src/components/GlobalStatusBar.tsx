@@ -152,7 +152,7 @@ export default function GlobalStatusBar() {
                     onMouseEnter={() => setHoveredQuake(quake)}
                     onMouseLeave={() => setHoveredQuake(null)}
                   >
-                    <span className="text-[#FF5722] text-[8px]">🔴</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#FF5722] shrink-0" />
                     <span className="text-[#FF5722] font-bold">M{quake.magnitude.toFixed(1)}</span>
                     <span className="text-white/30 truncate max-w-[140px]">{quake.place}</span>
                   </span>
@@ -179,7 +179,7 @@ export default function GlobalStatusBar() {
         <div className="absolute bottom-[34px] left-1/2 -translate-x-1/2 z-[300] pointer-events-none">
           <div className="bg-black/90 backdrop-blur-xl border border-white/[0.08] rounded-lg px-4 py-3 text-[10px] font-mono whitespace-nowrap shadow-2xl">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[12px]">🔴</span>
+              <span className="w-2 h-2 rounded-full bg-[#FF5722] shrink-0" />
               <span className="font-bold text-[#FF5722]">Magnitude {hoveredQuake.magnitude.toFixed(1)}</span>
               <span className="text-white/30 text-[8px] bg-white/5 px-1.5 py-0.5 rounded">USGS</span>
             </div>

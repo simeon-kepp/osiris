@@ -174,7 +174,7 @@ function serializeContext(context: IntelligenceContext): string {
   if (context.earthquakes.length > 0) {
     sections.push(`\n[SEISMIC DATA — ${context.earthquakes.length} events]`);
     for (const eq of context.earthquakes.slice(0, 20)) {
-      const tsunamiFlag = eq.tsunami ? ' ⚠️TSUNAMI' : '';
+      const tsunamiFlag = eq.tsunami ? ' TSUNAMI' : '';
       const alertFlag = eq.alert ? ` [ALERT:${eq.alert.toUpperCase()}]` : '';
       sections.push(
         `  M${eq.magnitude} | ${eq.location} | ${eq.latitude.toFixed(2)},${eq.longitude.toFixed(2)} | Depth:${eq.depth}km | ${eq.timestamp}${tsunamiFlag}${alertFlag}`

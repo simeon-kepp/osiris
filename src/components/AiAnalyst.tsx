@@ -272,7 +272,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
       const errorMsg: ChatMessage = {
         id: generateId(),
         role: 'analyst',
-        content: `⚠ INTELLIGENCE ANALYSIS ERROR\n\n${message}`,
+        content: `INTELLIGENCE ANALYSIS ERROR\n\n${message}`,
         timestamp: new Date().toISOString(),
         isError: true,
       };
@@ -288,7 +288,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
     const userMsg: ChatMessage = {
       id: generateId(),
       role: 'user',
-      content: '📋 Generate full intelligence briefing from current operational data',
+      content: 'Generate full intelligence briefing from current operational data',
       timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -323,7 +323,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
       const errorMsg: ChatMessage = {
         id: generateId(),
         role: 'analyst',
-        content: `⚠ BRIEFING GENERATION ERROR\n\n${message}`,
+        content: `BRIEFING GENERATION ERROR\n\n${message}`,
         timestamp: new Date().toISOString(),
         isError: true,
       };
@@ -823,7 +823,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
                 {/* Footer */}
                 <div className="flex items-center justify-between mt-1.5 px-1">
                   <span className="text-[7px] font-mono text-[var(--text-muted)] tracking-wider">
-                    {keySaved ? '🔑 CUSTOM KEY' : '🔧 SERVER KEY'} • {messages.filter((m) => m.role === 'user').length} QUERIES
+                    {keySaved ? 'CUSTOM KEY' : 'SERVER KEY'} • {messages.filter((m) => m.role === 'user').length} QUERIES
                   </span>
                   <span className="text-[7px] font-mono text-[var(--text-muted)] tracking-wider">
                     FEEDS: {(data.earthquakes?.length || 0) + (data.news?.length || 0) + (data.gdelt?.length || 0)} ITEMS

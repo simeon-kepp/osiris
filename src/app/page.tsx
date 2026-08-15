@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -26,7 +26,7 @@ const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const CameraViewer = dynamic(() => import('@/components/CameraViewer'));
 const OsintPanel = dynamic(() => import('@/components/OsintPanel'));
 const EntityGraphPanel = dynamic(() => import('@/components/EntityGraphPanel'));
-const TokenPanel = dynamic(() => import('@/components/TokenPanel'));
+const ReasoningPanel = dynamic(() => import('@/components/ReasoningPanel'));
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -111,6 +111,7 @@ export default function Dashboard() {
   const [showScmPanel, setShowScmPanel] = useState(true);
   const [showIntel, setShowIntel] = useState(false);
   const [showEntityGraph, setShowEntityGraph] = useState(false);
+  const [showReasoningPanel, setShowReasoningPanel] = useState(false);
   const [showDesktopSearch, setShowDesktopSearch] = useState(false);
   const [showDirections, setShowDirections] = useState(false);
   const [activeRoute, setActiveRoute] = useState<
@@ -1113,8 +1114,8 @@ export default function Dashboard() {
         <div className="flex items-center gap-3 w-fit">
           <img src="/rfi-irfos-logo.png" alt="RFI-IRFOS" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(45,212,191,0.5)]" />
           <div className="flex flex-col items-start gap-0.5">
-            <h1 className="text-lg md:text-xl font-bold tracking-[0.4em] text-[#D4AF37] font-mono">DINGIR</h1>
-            <span className="text-[8px] md:text-[9px] font-mono tracking-[0.2em] opacity-80 uppercase text-[#D4AF37]">OPEN SOURCE INTELLIGENCE</span>
+            <h1 className="text-lg md:text-xl font-bold tracking-[0.4em] text-white font-mono">DINGIR</h1>
+            <span className="text-[8px] md:text-[9px] font-mono tracking-[0.2em] opacity-80 uppercase text-[var(--cyan-primary)]">OPEN SOURCE INTELLIGENCE</span>
           </div>
         </div>
         <div className="flex items-center gap-3 mt-1.5 pl-[44px] min-w-0 pr-4">
@@ -1147,28 +1148,7 @@ export default function Dashboard() {
         {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
 
         <span className="text-[10px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.4.1</span>
-        
-        <TokenPanel />
-
-        <a href='https://ko-fi.com/M8D41ZYW4Z' target='_blank' rel='noopener noreferrer' className="pointer-events-auto glass-panel px-3 py-1.5 flex items-center gap-1.5 text-[8px] font-mono tracking-widest hover:opacity-80 transition-opacity border-[var(--gold-primary)]/40 bg-[var(--gold-primary)]/10 ml-3 shadow-[0_0_10px_rgba(255,215,0,0.1)]">
-          <div className="w-1.5 h-1.5 rounded-full bg-[var(--gold-primary)] animate-osiris-pulse" />
-          <span className="text-[var(--gold-primary)] font-bold">SUPPORT</span>
-        </a>
       </motion.div>
-
-      {/* ── MOBILE: Compact top status ── */}
-      {/* The route planner claims the top of a phone screen; leaving this in
-          place would put the support badge underneath the destination field. */}
-      {isMobile && !showDirections && !navSession && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="absolute top-3 right-3 z-[200] pointer-events-auto flex items-center gap-2">
-          <TokenPanel />
-          <a href='https://ko-fi.com/M8D41ZYW4Z' target='_blank' rel='noopener noreferrer' className="glass-panel px-2 py-1 flex items-center gap-1.5 text-[7px] font-mono tracking-widest hover:opacity-80 transition-opacity border-[var(--gold-primary)]/40 bg-[var(--gold-primary)]/10">
-            <div className="w-1 h-1 rounded-full bg-[var(--gold-primary)] animate-osiris-pulse" />
-            <span className="text-[var(--gold-primary)] font-bold">SUPPORT</span>
-          </a>
-        </motion.div>
-      )}
-
 
 
       {/* ── NEW SIDEBAR (Root Level) ── */}
@@ -1231,6 +1211,13 @@ export default function Dashboard() {
             <Network className={`w-4 h-4 ${showEntityGraph ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">GRAPH</span>
+        </div>
+
+        <div className="relative group">
+          <button onClick={() => { setShowReasoningPanel(!showReasoningPanel); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningPanel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Reasoning Panel — DINGIR's trained graph-embedding space">
+            <Brain className={`w-4 h-4 ${showReasoningPanel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">REASONING</span>
         </div>
 
         <div className="relative group">
@@ -1588,6 +1575,11 @@ export default function Dashboard() {
           entity={entityGraphTarget}
           onClose={() => setShowEntityGraph(false)}
         />
+      )}
+
+      {/* ── DINGIR Reasoning Panel ── */}
+      {showReasoningPanel && (
+        <ReasoningPanel onClose={() => setShowReasoningPanel(false)} />
       )}
 
       {/* ── OVERLAYS ── */}

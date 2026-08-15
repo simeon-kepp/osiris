@@ -79,7 +79,7 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
       layout: {
         background: { color: 'transparent' },
         textColor: '#78909C',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        fontFamily: "'JetBrains Mono', 'Courier New', monospace",
         fontSize: 9,
       },
       grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },

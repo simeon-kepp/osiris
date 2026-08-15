@@ -104,7 +104,7 @@ export default function AiOverview({ mode, payload, accent = '#7C4DFF' }: AiOver
                 </div>
               )}
 
-              {error && <div className="text-[var(--alert-red)] py-1">⚠ {error}</div>}
+              {error && <div className="text-[var(--alert-red)] py-1">{error}</div>}
 
               {result && (
                 <>

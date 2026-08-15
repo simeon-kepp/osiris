@@ -202,9 +202,9 @@ async function fetchScmAlerts(origin: string): Promise<string[]> {
     const hormuz = atRisk('Strait of Hormuz');
     const suez = atRisk('Suez Canal');
     const panama = atRisk('Panama Canal');
-    if (hormuz) alerts.push(`🚨 HORMUZ ${hormuz}: High risk of WTI/Brent Crude price spike due to congestion.`);
-    if (suez) alerts.push(`🚨 SUEZ ${suez}: Potential supply chain delays impacting European markets and Energy.`);
-    if (panama) alerts.push(`🚨 PANAMA ${panama}: LNG and Agriculture (Corn/Wheat) shipment delays expected.`);
+    if (hormuz) alerts.push(`HORMUZ ${hormuz}: High risk of WTI/Brent Crude price spike due to congestion.`);
+    if (suez) alerts.push(`SUEZ ${suez}: Potential supply chain delays impacting European markets and Energy.`);
+    if (panama) alerts.push(`PANAMA ${panama}: LNG and Agriculture (Corn/Wheat) shipment delays expected.`);
   } catch {
     // Maritime unreachable — the market data still stands on its own.
   }

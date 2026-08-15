@@ -95,7 +95,7 @@ function digestMarkets(payload: any): Digest {
     const kp = num(space.kp_index);
     const geomag = kp !== null && kp >= 5 ? 'geomagnetic storm conditions' : 'quiet geomagnetic field';
     facts.push(`Space weather: Kp ${space.kp_index} (${space.storm_level || geomag}).`);
-    if (kp !== null && kp >= 5) highlights.push(`⚡ Kp ${space.kp_index} STORM`);
+    if (kp !== null && kp >= 5) highlights.push(`Kp ${space.kp_index} STORM`);
   }
 
   const breadthWord = tickers.length && tickers.filter(t => t.pct > 0).length >= tickers.filter(t => t.pct < 0).length ? 'broadly bid' : 'under pressure';
@@ -123,7 +123,7 @@ function digestAlerts(payload: any): Digest {
       const max = Math.max(...mags);
       const strong = mags.filter(m => m >= 5).length;
       facts.push(`${quakes.length} seismic events tracked; strongest M${max.toFixed(1)}${strong ? `, ${strong} at M5.0+` : ''}.`);
-      if (max >= 5) highlights.push(`🌐 M${max.toFixed(1)} quake`);
+      if (max >= 5) highlights.push(`M${max.toFixed(1)} quake`);
     }
   }
 
@@ -132,20 +132,20 @@ function digestAlerts(payload: any): Digest {
     const hot = scored.filter(s => s >= 8).length;
     facts.push(`${news.length} OSINT news items; ${hot} flagged high-priority (risk ≥ 8).`);
     const topItem = [...news].sort((a, b) => (num(b?.risk_score) ?? 0) - (num(a?.risk_score) ?? 0))[0];
-    if (topItem?.title) highlights.push(`📰 ${decodeEntities(String(topItem.title)).slice(0, 48)}`);
-    if (hot) highlights.push(`🔴 ${hot} hot items`);
+    if (topItem?.title) highlights.push(`${decodeEntities(String(topItem.title)).slice(0, 48)}`);
+    if (hot) highlights.push(`${hot} hot items`);
   }
 
   if (Array.isArray(weather) && weather.length) {
     const high = weather.filter(w => (w?.severity || '').toLowerCase() === 'high').length;
     const types = [...new Set(weather.map(w => w?.type).filter(Boolean))].slice(0, 3).join(', ');
     facts.push(`${weather.length} active severe-weather events${high ? `, ${high} high-severity` : ''}${types ? ` (${types})` : ''}.`);
-    if (high) highlights.push(`🌪️ ${high} severe`);
+    if (high) highlights.push(`${high} severe`);
   }
 
   if (Array.isArray(conflicts) && conflicts.length) {
     facts.push(`${conflicts.length} active conflict zones under watch.`);
-    highlights.push(`⚔️ ${conflicts.length} zones`);
+    highlights.push(`${conflicts.length} zones`);
   }
 
   if (!facts.length) facts.push('No significant alerts in the current feed window.');
