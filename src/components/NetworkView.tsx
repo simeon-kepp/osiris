@@ -54,7 +54,17 @@ const TYPE_COLOR: Record<string, [number, number, number]> = {
   // the system describing itself
   WORKFLOW_STATE:     [0.60, 0.95, 0.90],  // pale teal
   INTERACTION_THREAD: [0.80, 0.75, 1.00],  // pale violet
+  // the audit trail. White, because a report is the only node type in this
+  // graph that is a primary document -- everything else is an extraction from
+  // one, and the eye should be able to find the sources.
+  AUDIT_REPORT:       [1.00, 0.98, 0.88],
 };
+
+// A type with no entry renders grey, and grey is where the whole graph went
+// once already: the table held eight entries while the graph held seventeen,
+// and the missing SANCTIONED_ENTITY was 70% of the nodes. There is no way to
+// make that impossible from here -- the types come from the server -- so the
+// panel reports unknown types in its legend rather than silently greying them.
 const FALLBACK_COLOR: [number, number, number] = [0.5, 0.5, 0.55];
 
 /** The same colours as CSS, derived from the shader's table rather than typed

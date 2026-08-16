@@ -456,9 +456,17 @@ export default function ReasoningPanel({ onClose, focusNode }: Props) {
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 {graph.types.map(t => {
                   const on = !hiddenTypes.has(t);
+                  // A type the renderer has no colour for draws grey, and grey
+                  // is where 70% of this graph went once already when the merge
+                  // added nine node types the colour table did not know about.
+                  // The types come from the server, so the panel cannot make
+                  // that impossible -- it can refuse to hide it.
+                  const uncoloured = !TYPE_SWATCH[t];
                   return (
                     <button key={t} onClick={() => toggleType(t)}
-                      title={on ? `Hide ${t}` : `Show ${t}`}
+                      title={uncoloured
+                        ? `${t} has no colour assigned and is drawing grey — add it to TYPE_COLOR in NetworkView.tsx`
+                        : on ? `Hide ${t}` : `Show ${t}`}
                       className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[9px] font-mono transition ${
                         on ? 'text-[var(--text-secondary)] hover:bg-white/5'
                            : 'text-[var(--text-muted)] line-through opacity-50'}`}>
@@ -466,9 +474,18 @@ export default function ReasoningPanel({ onClose, focusNode }: Props) {
                             style={{ background: on ? (TYPE_SWATCH[t] || '#80808c') : 'transparent',
                                      border: on ? 'none' : `1px solid ${TYPE_SWATCH[t] || '#80808c'}` }} />
                       {t}
+                      {uncoloured && (
+                        <span className="text-[var(--alert-red)]" title="no colour assigned">*</span>
+                      )}
                     </button>
                   );
                 })}
+                {graph.types.some(t => !TYPE_SWATCH[t]) && (
+                  <span className="text-[9px] font-mono text-[var(--alert-red)]"
+                        title="These node types render grey because NetworkView has no colour for them">
+                    * uncoloured
+                  </span>
+                )}
                 {hiddenTypes.size > 0 && (
                   <button onClick={() => setHiddenTypes(new Set())}
                     className="rounded px-1.5 py-0.5 text-[9px] font-mono text-[var(--cyan-primary)] hover:bg-[var(--cyan-primary)]/10">
