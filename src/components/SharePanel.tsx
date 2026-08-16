@@ -145,7 +145,7 @@ export default function SharePanel({ mapView, activeLayers, mouseCoords }: Share
                 IN SHARE
               </a>
               <a
-                href={`https://reddit.com/submit?url=${encodeURIComponent(generateShareUrl())}&title=${encodeURIComponent('OSIRIS — Open Source Global Intelligence Platform')}`}
+                href={`https://reddit.com/submit?url=${encodeURIComponent(generateShareUrl())}&title=${encodeURIComponent('DINGIR — Open Source Global Intelligence Platform')}`}
                 target="_blank"
                 className="flex-1 text-center py-1.5 rounded text-[7px] font-mono tracking-wider text-[var(--text-muted)] border border-[var(--border-primary)] hover:border-[#FF4500] hover:text-[#FF4500] transition-colors"
               >

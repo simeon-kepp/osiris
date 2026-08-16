@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════
-   OSIRIS — Route Planner
+   DINGIR — Route Planner
    Turn-by-turn routing over /api/directions (Valhalla + OSRM)
    ═══════════════════════════════════════════════════════════════ */
 

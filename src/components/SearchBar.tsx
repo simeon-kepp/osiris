@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, X, MapPin, Navigation, Building2, Globe2, Landmark } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════
-   OSIRIS — Enhanced Search / Locate Bar
+   DINGIR — Enhanced Search / Locate Bar
    Street-level geocoding with intelligent zoom levels
    Ctrl+F / Cmd+F keyboard shortcut support
    ═══════════════════════════════════════════════════════════════ */

@@ -237,7 +237,7 @@ function EntityGraphPanel({ entity, onClose }: Props) {
         <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--border-primary)] bg-[var(--gold-primary)]/5 relative z-20">
           <div className="flex items-center gap-3">
             <div className="w-1.5 h-1.5 bg-[var(--gold-primary)] animate-osiris-pulse shadow-[0_0_8px_var(--gold-primary)]" />
-            <span className="text-[12px] font-mono font-bold tracking-[0.2em] text-[var(--gold-primary)]">[ OSIRIS // ENTITY INTEL ]</span>
+            <span className="text-[12px] font-mono font-bold tracking-[0.2em] text-[var(--gold-primary)]">[ DINGIR // ENTITY INTEL ]</span>
             {loading && <Loader2 className="w-3.5 h-3.5 text-[var(--gold-primary)] animate-spin" />}
           </div>
           <div className="flex items-center gap-2">

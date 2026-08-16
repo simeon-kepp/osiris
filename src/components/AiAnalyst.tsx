@@ -21,7 +21,7 @@ import {
 import type { IntelligenceContext } from '@/lib/ai-engine';
 
 /* ═══════════════════════════════════════════════════════════════
-   OSIRIS — AI Intelligence Analyst Panel
+   DINGIR — AI Intelligence Analyst Panel
    Premium glass-panel chat interface for real-time intelligence
    analysis powered by Gemini 2.0 Flash
    ═══════════════════════════════════════════════════════════════ */
@@ -448,7 +448,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
                     <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[var(--alert-green)] animate-osiris-pulse" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="hud-text text-[11px] text-[var(--text-heading)]">OSIRIS ANALYST</span>
+                    <span className="hud-text text-[11px] text-[var(--text-heading)]">DINGIR ANALYST</span>
                     <span className="text-[7px] font-mono tracking-[0.2em] text-[var(--text-muted)]">
                       GEMINI 2.0 FLASH • ONLINE
                     </span>
@@ -547,7 +547,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
                         )}
                       </div>
                       <p className="text-[8px] font-mono text-[var(--text-muted)] leading-relaxed">
-                        Your key is stored locally and sent only to the OSIRIS server. Get a free key at{' '}
+                        Your key is stored locally and sent only to the DINGIR server. Get a free key at{' '}
                         <a
                           href="https://aistudio.google.com/apikey"
                           target="_blank"
@@ -679,7 +679,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
                               : 'var(--gold-primary)',
                           }}
                         >
-                          {msg.role === 'user' ? 'OPERATOR' : 'OSIRIS ANALYST'}
+                          {msg.role === 'user' ? 'OPERATOR' : 'DINGIR ANALYST'}
                         </span>
                         <span className="text-[7px] font-mono text-[var(--text-muted)] ml-auto">
                           {new Date(msg.timestamp).toLocaleTimeString([], {

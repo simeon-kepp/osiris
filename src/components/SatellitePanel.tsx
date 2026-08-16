@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════
-   OSIRIS — SATELLITE IMAGERY PANEL
+   DINGIR — SATELLITE IMAGERY PANEL
    Sentinel-2 STAC archive search + commercial/free imagery links
    ═══════════════════════════════════════════════════════════════ */
 
