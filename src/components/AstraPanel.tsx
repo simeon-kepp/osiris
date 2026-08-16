@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Crosshair, MapPin, Loader2, Image as ImageIcon, UploadCloud, X, Navigation } from 'lucide-react';
 

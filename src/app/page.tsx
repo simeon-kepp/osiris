@@ -1058,14 +1058,19 @@ export default function Dashboard() {
         </motion.div>
       )}
 
-      {/* ── MAP VIEW CONTROLS ── */}
+      {/* ── MAP VIEW CONTROLS + CURSOR READOUT ──
+          One row along the bottom. These were two absolutely-positioned blocks
+          at two different heights (controls at bottom-100px, the readout at
+          bottom-8), which put a band of empty map between two things that
+          belong to each other and read as two unrelated bits of chrome. The
+          tape vacating the bottom edge is what made the room. */}
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 3.5 }}
-        className="absolute bottom-[75px] md:bottom-[100px] z-[200] flex flex-col gap-1.5 pointer-events-none"
-        style={{ left: isMobile ? '12px' : '120px' }}
+        className="absolute bottom-[75px] md:bottom-5 z-[200] flex flex-col gap-1 pointer-events-none"
+        style={{ left: isMobile ? '12px' : '120px', right: isMobile ? '12px' : '24px' }}
       >
         {/* Unified Control Strip */}
-        <div className="flex items-center gap-1.5 pointer-events-auto">
+        <div className="flex items-center gap-1.5 pointer-events-auto w-fit">
           {/* Projection Toggle (Globe / 2D) */}
           <div className="flex items-center rounded-xl overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-panel)] backdrop-blur-2xl shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
             <button
@@ -1125,10 +1130,26 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Scale Bar */}
+        {/* Scale bar and cursor readout share one line under the pills. */}
         {!isMobile && (
-          <div className="pl-0.5">
-            <ScaleBar zoom={mapView.zoom} latitude={mapView.latitude} />
+          <div className="flex items-center gap-5 pointer-events-auto">
+            <div className="pl-0.5 shrink-0">
+              <ScaleBar zoom={mapView.zoom} latitude={mapView.latitude} />
+            </div>
+            <div className="flex items-center gap-5 text-[9px] font-mono tracking-widest text-[var(--text-muted)] opacity-70 min-w-0">
+              <div className="flex gap-2 items-center shrink-0" title="Cursor coordinates (hover over map)">
+                <span>CURSOR</span>
+                <span ref={coordsDisplayRef} className="text-[var(--gold-primary)] font-bold tabular-nums">—</span>
+              </div>
+              <div className="flex gap-2 items-center min-w-0" title="Reverse-geocoded location name">
+                <span className="shrink-0">LOCATION</span>
+                <span className="text-[var(--cyan-primary)] truncate">{locationLabel || 'HOVER MAP'}</span>
+              </div>
+              <div className="flex gap-2 items-center shrink-0" title="Current zoom level">
+                <span>ZOOM</span>
+                <span className="text-[var(--gold-primary)] font-bold tabular-nums">{mapView.zoom.toFixed(1)}</span>
+              </div>
+            </div>
           </div>
         )}
       </motion.div>
@@ -1212,14 +1233,16 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">RECON</span>
           <AnimatePresence>
             {showIntel && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
-                <OsintPanel theme={osirisTheme} setTheme={setOsirisTheme} onSweepVisualize={setSweepData} onScanGeolocate={(target, data) => {
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
+                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+                  <OsintPanel onSweepVisualize={setSweepData} onScanGeolocate={(target, data) => {
                   setScanTargets(prev => {
                     const existing = prev.filter(t => t.id !== target);
                     return [{ id: target, timestamp: Date.now(), ...data }, ...existing].slice(0, 10);
                   });
                   setFlyToLocation({ lat: data.lat, lng: data.lng, ts: Date.now() });
                 }} />
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1232,8 +1255,10 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">MARKETS</span>
           <AnimatePresence>
             {showMarkets && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
-                <MarketsPanel data={data} spaceWeather={spaceWeather} />
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
+                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+                  <MarketsPanel data={data} spaceWeather={spaceWeather} />
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1246,8 +1271,10 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">ALERTS</span>
           <AnimatePresence>
             {showAlerts && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
-                <LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} />
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
+                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+                  <LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} />
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1310,8 +1337,10 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">SEARCH</span>
           <AnimatePresence>
             {showDesktopSearch && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
-                <SearchBar alwaysExpanded onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setShowDesktopSearch(false); }} />
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
+                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+                  <SearchBar alwaysExpanded onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setShowDesktopSearch(false); }} />
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1329,8 +1358,9 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">ARCGIS</span>
           <AnimatePresence>
             {showArcGIS && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-[340px]">
-                <div className="glass-panel p-3 max-h-[70vh] overflow-y-auto styled-scrollbar">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-[340px] flex items-center pointer-events-none">
+                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+                  <div className="glass-panel p-3 max-h-[70vh] overflow-y-auto styled-scrollbar">
                   <ArcGISPanel
                     onImportLayer={(layer) => setArcgisLayers(prev => [...prev.filter(l => l.id !== layer.id), { ...layer, color: layer.color || '#D4AF37', visible: true, opacity: layer.opacity ?? 0.8 }])}
                     onRemoveLayer={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))}
@@ -1338,6 +1368,7 @@ export default function Dashboard() {
                     importedLayers={arcgisLayers}
                     mapBounds={mapCenter?.bounds || null}
                   />
+                </div>
                 </div>
               </motion.div>
             )}
@@ -1356,8 +1387,9 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">REMOTE</span>
           <AnimatePresence>
             {showRemote && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
-                <WorldRemote onClose={() => setShowRemote(false)} onPlaceOnMap={(devs) => {
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
+                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+                  <WorldRemote onClose={() => setShowRemote(false)} onPlaceOnMap={(devs) => {
                   setScanTargets(prev => {
                     const ids = new Set(prev.map((t: any) => t.id));
                     const next = [...prev];
@@ -1366,6 +1398,7 @@ export default function Dashboard() {
                   });
                   if (devs.length > 0) setFlyToLocation({ lat: devs[0].lat, lng: devs[0].lng, ts: Date.now() });
                 }} />
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1582,27 +1615,7 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* ── BOTTOM CURSOR INFO (desktop) ── */}
-      {!isMobile && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 3, duration: 0.8 }} className="desktop-only absolute bottom-8 z-[200] pointer-events-auto" style={{ left: '72px' }}>
-          <div className="flex items-center gap-5 text-[8px] font-mono tracking-widest text-[var(--text-muted)] opacity-60">
-            <div className="flex gap-2 items-center" title="Cursor coordinates (hover over map)">
-              <span>CURSOR</span>
-              <span ref={coordsDisplayRef} className="text-[var(--gold-primary)] font-bold tabular-nums">—</span>
-            </div>
-            <div className="flex gap-2 items-center" title="Reverse-geocoded location name">
-              <span>LOCATION</span>
-              <span className="text-[var(--cyan-primary)] truncate max-w-[200px]">{locationLabel || 'HOVER MAP'}</span>
-            </div>
-            <div className="flex gap-2 items-center" title="Current zoom level">
-              <span>ZOOM</span>
-              <span className="text-[var(--gold-primary)] font-bold tabular-nums">{mapView.zoom.toFixed(1)}</span>
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Scale bar is now integrated into the map controls section above */}
+      {/* Scale bar and cursor readout live in the map controls row above. */}
 
       {/* ── Region Dossier ── */}
       {(regionDossier || dossierLoading) && (

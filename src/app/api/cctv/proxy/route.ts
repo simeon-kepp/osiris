@@ -117,7 +117,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: `Upstream ${result.status}` }, { status: result.status });
     }
 
-    return new NextResponse(result.data, {
+    // Buffer is a Uint8Array underneath, but it is not a BodyInit; handing over
+    // the underlying bytes says what is actually being sent.
+    return new NextResponse(new Uint8Array(result.data), {
       status: 200,
       headers: {
         'Content-Type': result.contentType,
