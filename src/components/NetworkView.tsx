@@ -162,16 +162,35 @@ export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onP
     const col = new Float32Array(n * 3);
     const siz = new Float32Array(n);
 
-    // WHY THE AXES ARE EQUALISED. The coordinates are the first three principal
-    // components of the embedding, and PCA emits its axes in order of variance:
-    // PC1 carries far more than PC3, so the cloud renders as a flat pancake seen
-    // edge-on. That flatness is a property of how PCA orders its output, not of
-    // the data -- the same points in the same relative arrangement, with each
-    // axis scaled to comparable spread, fill a volume you can actually rotate
-    // and read. This is a per-axis linear rescale: it moves nothing past
-    // anything else and invents no structure. What it does cost is that
-    // distances are no longer comparable BETWEEN axes, which matters for
-    // measuring and not for looking, and nothing here measures.
+    // WHY THE CLOUD IS RE-SPREAD, and what was actually wrong with it.
+    //
+    // The first diagnosis here was that PCA emits axes in variance order, so
+    // PC3 would be flat and the cloud would render as a pancake. MEASURED ON
+    // THE REAL PAYLOAD, THAT WAS WRONG: the three axes have standard deviations
+    // 0.138 / 0.118 / 0.117, a ratio of 1.2x. There was no pancake.
+    //
+    // What there is, is a dense core. 92.6% of all 28,730 nodes sit within a
+    // quarter of the maximum radius, because the graph is mostly leaves --
+    // 20,077 sanctions entities with a median radius of 0.11 -- while the hubs
+    // are flung to the edge (COUNTRY sits at 0.71, ACTOR at 0.65). Ninety-two
+    // per cent of the points in a few per cent of the volume is a solid ball
+    // whichever way you turn it.
+    //
+    // So the radius is passed through a square root, which is monotonic: every
+    // node that was nearer the centre than another still is, and no point
+    // crosses another. It expands the crowded middle and compresses the sparse
+    // outside -- measured, that takes the share inside a quarter-radius from
+    // 92.6% to 14.0%. (r^0.4 was also tried and overshoots into the opposite
+    // failure: 1.1% inside, i.e. a hollow shell.)
+    //
+    // THIS IS NOT A DISTANCE-PRESERVING VIEW and must not be read as one. Rank
+    // by distance survives; ratios of distance do not. Nothing in this panel
+    // measures, it locates -- and a picture where 92% of the subject matter is
+    // one opaque lump locates nothing.
+    //
+    // The per-axis normalisation below is kept even though it is close to a
+    // no-op on today's data (1.2x), because it costs one pass and a future
+    // graph with a genuinely dominant first component would need it.
     let mx = 0, my = 0, mz = 0;
     for (const nd of graph.nodes) { mx += nd.x; my += nd.y; mz += nd.z; }
     mx /= n || 1; my /= n || 1; mz /= n || 1;
@@ -182,7 +201,15 @@ export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onP
     const sx = Math.sqrt(vx / (n || 1)) || 1;
     const sy = Math.sqrt(vy / (n || 1)) || 1;
     const sz = Math.sqrt(vz / (n || 1)) || 1;
-    const SPREAD = 0.42;   // keeps the whitened cloud inside the clip volume
+
+    // Longest radius after normalisation, so the square root maps onto [0,1]
+    // and the result can be scaled once into the clip volume.
+    let rMax = 1e-9;
+    for (const nd of graph.nodes) {
+      const r = Math.hypot((nd.x - mx) / sx, (nd.y - my) / sy, (nd.z - mz) / sz);
+      if (r > rMax) rMax = r;
+    }
+    const SPREAD = 1.15;
 
     // Degree, so hubs are visible as hubs. 28,730 identically-sized dots hide
     // the fact that a handful of them hold thousands of edges.
@@ -193,9 +220,12 @@ export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onP
 
     for (let i = 0; i < n; i++) {
       const node = graph.nodes[i];
-      pos[i * 3]     = ((node.x - mx) / sx) * SPREAD;
-      pos[i * 3 + 1] = ((node.y - my) / sy) * SPREAD;
-      pos[i * 3 + 2] = ((node.z - mz) / sz) * SPREAD;
+      const ux = (node.x - mx) / sx, uy = (node.y - my) / sy, uz = (node.z - mz) / sz;
+      const r = Math.hypot(ux, uy, uz);
+      // Same direction, re-spread radius. A node at the centroid stays there
+      // rather than being divided by zero.
+      const k = r > 1e-9 ? (Math.sqrt(r / rMax) / r) * SPREAD : 0;
+      pos[i * 3] = ux * k; pos[i * 3 + 1] = uy * k; pos[i * 3 + 2] = uz * k;
       const c = TYPE_COLOR[node.type] || FALLBACK_COLOR;
       col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
       // Cube root, not linear: degree is heavy-tailed (6121 against a median of
