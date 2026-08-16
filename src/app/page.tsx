@@ -30,6 +30,42 @@ const EntityGraphPanel = dynamic(() => import('@/components/EntityGraphPanel'));
 const ReasoningPanel = dynamic(() => import('@/components/ReasoningPanel'));
 const ReasoningFeed = dynamic(() => import('@/components/ReasoningFeed'));
 const AiAnalyst = dynamic(() => import('@/components/AiAnalyst'));
+
+// Total raw GeoJSON the dashboard will hold from ArcGIS at once. Measured the
+// hard way: importing six full-attribute layers killed the renderer (Chrome
+// error 61696). 24 MB of geometry plus maplibre's own copies sits comfortably
+// inside a normal tab.
+const ARCGIS_BUDGET_BYTES = 24_000_000;
+
+// Imported on FIRST RUN ONLY, never again. Every url and payload size below was
+// fetched and measured on 2026-08-16 through /api/arcgis rather than taken from
+// a catalogue listing -- three of the six "power grid" search hits return HTTP
+// 400 and would have shipped as silent failures.
+//
+//   Natural Gas Interstate and Intrastate    290 KB   2000 features
+//   Crude Oil Trunk Pipelines                 74 KB    236
+//   Petroleum Products Pipelines              76 KB    329
+//   Hydrocarbon Gas Liquids Pipelines         48 KB    133
+//   Outer Continental Shelf Oil and Gas     1.03 MB   2000
+//   Electricity Transmission Lines          2.27 MB   2000
+//   Electric Transmission Lines (3D)        1.47 MB   2000
+//                                          --------
+//                                           ~5.3 MB, inside the 24 MB budget
+//
+// FIRST RUN ONLY is the whole design. Importing these on every load would make
+// removing one pointless -- it would be back on the next refresh -- so the
+// preset runs when there is no saved state at all, and after that the saved
+// state is the truth, including the absence of a layer the user deleted.
+const DEFAULT_ARCGIS_LAYERS = [
+  { id: '9833ca6c8103490b8ad145a30f0522ee', title: 'Natural Gas Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Natural_Gas_Interstate_and_Intrastate_Pipelines_1/FeatureServer', color: '#D4AF37' },
+  { id: 'bb2aee97117d403ea63bcfe6be4a12c8', title: 'Crude Oil Trunk Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Crude_Oil_Trunk_Pipelines_1/FeatureServer', color: '#FF6B35' },
+  { id: 'c745d9f4b81e42f3a54aee7aaa396975', title: 'Petroleum Products Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Petroleum_Products_Pipelines_1/FeatureServer', color: '#F7931E' },
+  { id: '25e6c30180974dada0dca74ba33fd558', title: 'Hydrocarbon Gas Liquids', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Hydrocarbon_Gas_Liquids_Pipelines_1/FeatureServer', color: '#FFD166' },
+  { id: 'd09356f9ecbe40b1ba9de7a820733746', title: 'Offshore Oil & Gas Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Oil_And_Natural_Gas_Pipelines_Gulf_2024Q4/FeatureServer', color: '#06D6A0' },
+  { id: '45c39d7105ea450582376ea2a72da80d', title: 'Electricity Transmission Lines', url: 'https://services2.arcgis.com/EJBJ6iaHlb2c1Uh1/arcgis/rest/services/Electricity_Transmission_Lines/FeatureServer', color: '#00E5FF' },
+  { id: '617326a3d42d453a8dfa46521f907143', title: 'US Electric Power Transmission', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/US_Electric_Power_Transmission_Lines/FeatureServer', color: '#B388FF' },
+];
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -225,6 +261,70 @@ export default function Dashboard() {
   const [showRemote, setShowRemote] = useState(false);
   const [showArcGIS, setShowArcGIS] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
+  const [arcgisRestoring, setArcgisRestoring] = useState(false);
+  const [arcgisNote, setArcgisNote] = useState<string | null>(null);
+
+  // WHAT IS PERSISTED IS THE CHOICE, NOT THE GEOMETRY.
+  //
+  // An imported layer is up to 2000 features; six of them took the tab out with
+  // Chrome error 61696, renderer out of memory. localStorage caps at 5-10MB and
+  // could not hold one of them anyway. So the reference is stored -- id, title,
+  // url, colour, visibility, opacity, a few hundred bytes -- and the geometry is
+  // refetched on load. The selection survives a refresh; the weight does not
+  // have to.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('dingir-arcgis-layers');
+      // No saved state at all means a first run, and a first run gets the
+      // preset. A saved EMPTY list means the user removed everything, which is
+      // a decision and is left alone.
+      const refs: Array<{ id: string; title: string; url: string; color: string; visible: boolean; opacity: number }> =
+        raw === null
+          ? DEFAULT_ARCGIS_LAYERS.map(l => ({ ...l, visible: true, opacity: 0.8 }))
+          : JSON.parse(raw);
+      if (!Array.isArray(refs) || !refs.length) return;
+      setArcgisRestoring(true);
+      let cancelled = false;
+      (async () => {
+        let bytes = 0;
+        const restored: typeof arcgisLayers = [];
+        const dropped: string[] = [];
+        // Sequential, not Promise.all: six concurrent multi-megabyte parses is
+        // the same memory spike that caused the crash, just compressed into one
+        // moment.
+        for (const ref of refs) {
+          if (cancelled) return;
+          try {
+            const res = await fetch(`/api/arcgis?service=${encodeURIComponent(ref.url)}`);
+            if (!res.ok) { dropped.push(ref.title); continue; }
+            const text = await res.text();
+            // A HARD CEILING, and a message rather than a crash. Without this the
+            // failure mode is the whole tab dying with no explanation, which is
+            // exactly what happened.
+            if (bytes + text.length > ARCGIS_BUDGET_BYTES) { dropped.push(ref.title); continue; }
+            bytes += text.length;
+            restored.push({ ...ref, geojson: JSON.parse(text) });
+          } catch { dropped.push(ref.title); }
+        }
+        if (cancelled) return;
+        setArcgisLayers(restored);
+        setArcgisRestoring(false);
+        setArcgisNote(dropped.length
+          ? `${restored.length} layer${restored.length === 1 ? '' : 's'} restored; ${dropped.length} left out to stay inside the ${Math.round(ARCGIS_BUDGET_BYTES / 1e6)} MB budget: ${dropped.join(', ')}`
+          : null);
+      })();
+      return () => { cancelled = true; };
+    } catch { /* a corrupt entry is not worth failing the whole dashboard for */ }
+  }, []);
+
+  // Written on every change, geometry stripped.
+  useEffect(() => {
+    try {
+      localStorage.setItem('dingir-arcgis-layers', JSON.stringify(
+        arcgisLayers.map(({ id, title, url, color, visible, opacity }) =>
+          ({ id, title, url, color, visible, opacity }))));
+    } catch { /* quota or private mode; the session still works */ }
+  }, [arcgisLayers]);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'remote'|null>(null);
@@ -1220,7 +1320,7 @@ export default function Dashboard() {
 
 
       {/* ── NEW SIDEBAR (Root Level) ── */}
-      {showLayers && !isMobile && <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} />}
+      {showLayers && !isMobile && <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} arcgisLayers={arcgisLayers.map(l => ({ id: l.id, title: l.title, color: l.color, visible: l.visible }))} onToggleArcgis={(id) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l))} onRemoveArcgis={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))} />}
 
 
 
@@ -1233,8 +1333,8 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">RECON</span>
           <AnimatePresence>
             {showIntel && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
-                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
+                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
                   <OsintPanel onSweepVisualize={setSweepData} onScanGeolocate={(target, data) => {
                   setScanTargets(prev => {
                     const existing = prev.filter(t => t.id !== target);
@@ -1255,8 +1355,8 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">MARKETS</span>
           <AnimatePresence>
             {showMarkets && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
-                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
+                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
                   <MarketsPanel data={data} spaceWeather={spaceWeather} />
                 </div>
               </motion.div>
@@ -1271,8 +1371,8 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">ALERTS</span>
           <AnimatePresence>
             {showAlerts && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
-                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
+                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
                   <LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} />
                 </div>
               </motion.div>
@@ -1337,8 +1437,8 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">SEARCH</span>
           <AnimatePresence>
             {showDesktopSearch && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
-                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
+                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
                   <SearchBar alwaysExpanded onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setShowDesktopSearch(false); }} />
                 </div>
               </motion.div>
@@ -1358,11 +1458,23 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">ARCGIS</span>
           <AnimatePresence>
             {showArcGIS && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-[340px] flex items-center pointer-events-none">
-                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
-                  <div className="glass-panel p-3 max-h-[70vh] overflow-y-auto styled-scrollbar">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-[340px] flex flex-col pointer-events-none">
+                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
+                  <div className="glass-panel p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
                   <ArcGISPanel
-                    onImportLayer={(layer) => setArcgisLayers(prev => [...prev.filter(l => l.id !== layer.id), { ...layer, color: layer.color || '#D4AF37', visible: true, opacity: layer.opacity ?? 0.8 }])}
+                    onImportLayer={(layer) => setArcgisLayers(prev => {
+                      // The same ceiling on the live path. Guarding only the
+                      // restore would mean the crash is prevented on reload and
+                      // still available on click, which is the wrong half.
+                      const next = [...prev.filter(l => l.id !== layer.id), { ...layer, color: layer.color || '#D4AF37', visible: true, opacity: layer.opacity ?? 0.8 }];
+                      const bytes = next.reduce((s, l) => s + (l.geojson ? JSON.stringify(l.geojson).length : 0), 0);
+                      if (bytes > ARCGIS_BUDGET_BYTES) {
+                        setArcgisNote(`"${layer.title}" would take the imported layers past ${Math.round(ARCGIS_BUDGET_BYTES / 1e6)} MB. Remove one first.`);
+                        return prev;
+                      }
+                      setArcgisNote(null);
+                      return next;
+                    })}
                     onRemoveLayer={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))}
                     onUpdateLayer={(id, updates) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l))}
                     importedLayers={arcgisLayers}
@@ -1387,8 +1499,8 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">REMOTE</span>
           <AnimatePresence>
             {showRemote && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex items-center pointer-events-none">
-                <div className="w-full max-h-full overflow-y-auto styled-scrollbar pointer-events-auto">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
+                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
                   <WorldRemote onClose={() => setShowRemote(false)} onPlaceOnMap={(devs) => {
                   setScanTargets(prev => {
                     const ids = new Set(prev.map((t: any) => t.id));
@@ -1578,7 +1690,7 @@ export default function Dashboard() {
                           <div><div className="hud-label" style={{fontSize:'6px'}}>NUC</div><div className="hud-value text-[9px]" style={{color:'var(--accent-nuclear)'}}>{(data.infrastructure?.length||0)}</div></div>
                         </div>
                       </div>
-                      <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} />
+                      <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} arcgisLayers={arcgisLayers.map(l => ({ id: l.id, title: l.title, color: l.color, visible: l.visible }))} onToggleArcgis={(id) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l))} onRemoveArcgis={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))} />
                       <div className="mt-8">
                         <ViewPresets onNavigate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, ts: Date.now() }); setMapView(v => ({ ...v, zoom })); setMobilePanel(null); }} />
                       </div>
@@ -1673,6 +1785,29 @@ export default function Dashboard() {
           onClose={() => { setShowReasoningPanel(false); setReasoningFocus(undefined); }}
         />
       )}
+
+      {/* Why an import was refused, or which restored layers were left out.
+          A guard that silently declines is only marginally better than a crash:
+          either way nothing happens and nothing says why. */}
+      <AnimatePresence>
+        {(arcgisNote || arcgisRestoring) && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+            className="fixed top-[76px] left-1/2 -translate-x-1/2 z-[600] max-w-[560px] rounded-lg px-3.5 py-2 pointer-events-auto"
+            style={{ background: 'rgba(10,10,16,0.94)', border: '1px solid rgba(212,175,55,0.3)', backdropFilter: 'blur(20px)' }}>
+            <div className="flex items-start gap-2.5">
+              <Database className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[var(--gold-primary)]" />
+              <span className="text-[12px] text-[var(--text-secondary)] leading-relaxed">
+                {arcgisRestoring ? 'Restoring imported ArcGIS layers…' : arcgisNote}
+              </span>
+              {!arcgisRestoring && (
+                <button onClick={() => setArcgisNote(null)} className="ml-1 text-[var(--text-muted)] hover:text-white shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── DINGIR Analyst ──
           Gated with the rest of the reasoning surface: the chat answers against

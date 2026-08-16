@@ -18,6 +18,13 @@ interface LayerPanelProps {
   /** Server-side capabilities, e.g. { cloudflare: true }. Layers declaring a
    *  `requires` key stay hidden until the matching capability is present. */
   capabilities?: Record<string, boolean>;
+  /** Imported ArcGIS layers. They used to be switchable only from inside the
+   *  ArcGIS import panel, which meant the place you turn a layer on depended on
+   *  where the layer came from -- pipelines in one panel, everything else in
+   *  this one. A layer is a layer. */
+  arcgisLayers?: Array<{ id: string; title: string; color: string; visible: boolean }>;
+  onToggleArcgis?: (id: string) => void;
+  onRemoveArcgis?: (id: string) => void;
 }
 
 interface LayerDef {
@@ -169,7 +176,7 @@ function ToggleSwitch({ active, onClick }: { active: boolean; onClick: () => voi
   );
 }
 
-function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {} }: LayerPanelProps) {
+function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {}, arcgisLayers, onToggleArcgis, onRemoveArcgis }: LayerPanelProps) {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
   const toggle = (key: string) => setActiveLayers((prev: any) => ({ ...prev, [key]: !prev[key] }));
@@ -196,6 +203,33 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
     }
     return found ? total : null;
   };
+
+  /* Imported ArcGIS layers, shown alongside the built-in ones. */
+  const arcgisBlock = arcgisLayers && arcgisLayers.length > 0 ? (
+    <div className="flex flex-col gap-2">
+      <div className="text-[9px] font-mono tracking-[0.2em] uppercase text-white/30 border-b border-white/[0.06] pb-1.5">
+        IMPORTED · ARCGIS
+      </div>
+      <div className="flex flex-col gap-1">
+        {arcgisLayers.map((l) => (
+          <div key={l.id} className="flex items-center gap-3 px-1 py-1.5 group/arc">
+            <ToggleSwitch active={l.visible} onClick={() => onToggleArcgis?.(l.id)} />
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: l.color }} />
+            <span className={`text-[10px] font-mono uppercase tracking-wider flex-1 truncate transition-colors ${l.visible ? 'text-white/80' : 'text-white/40'}`}
+                  title={l.title}>
+              {l.title}
+            </span>
+            {onRemoveArcgis && (
+              <button onClick={() => onRemoveArcgis(l.id)} title="Remove this layer"
+                className="text-[9px] font-mono text-white/20 hover:text-[var(--alert-red)] opacity-0 group-hover/arc:opacity-100 transition">
+                ✕
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null;
 
   /* ── MOBILE ── */
   if (isMobile) {
@@ -230,6 +264,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
             </div>
           </div>
         ))}
+        {arcgisBlock}
 
         {/* MOBILE GHOST TOGGLE */}
         {setTheme && (
@@ -349,6 +384,76 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
             </div>
           );
         })}
+
+        {/* Imported ArcGIS layers, in the same rail as everything else. They
+            used to be switchable only from inside the import panel, so where
+            you turned a layer on depended on where the layer came from. */}
+        {arcgisLayers && arcgisLayers.length > 0 && (
+          <div
+            className="relative flex items-center justify-center"
+            onMouseEnter={() => setHoveredGroup('__arcgis__')}
+            onMouseLeave={() => setHoveredGroup(null)}
+          >
+            <div className="w-10 h-10 flex items-center justify-center cursor-pointer rounded-lg transition-all duration-300"
+                 style={{ background: hoveredGroup === '__arcgis__' ? 'rgba(255,255,255,0.05)' : 'transparent' }}>
+              <Database
+                className="transition-all duration-300"
+                style={{
+                  width: 16, height: 16,
+                  color: arcgisLayers.some(l => l.visible)
+                    ? 'rgba(212,175,55,0.85)'
+                    : hoveredGroup === '__arcgis__' ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.2)',
+                  filter: arcgisLayers.some(l => l.visible)
+                    ? 'drop-shadow(0 0 4px rgba(212,175,55,0.35))' : 'none',
+                }}
+              />
+            </div>
+            <AnimatePresence>
+              {hoveredGroup === '__arcgis__' && (
+                <motion.div
+                  initial={{ opacity: 0, x: -8, filter: 'blur(4px)' }}
+                  animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+                  exit={{ opacity: 0, x: -4, filter: 'blur(2px)' }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="absolute left-[52px] top-1/2 -translate-y-1/2 min-w-[260px] max-w-[340px] max-h-[70vh] overflow-y-auto styled-scrollbar rounded-xl p-3 z-[100] pointer-events-auto"
+                  style={{
+                    background: 'rgba(0,0,0,0.6)',
+                    backdropFilter: 'blur(40px) saturate(1.5)',
+                    WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                  }}
+                >
+                  <div className="text-[9px] font-mono tracking-[0.2em] uppercase text-white/30 mb-2.5 pb-1.5 border-b border-white/[0.04]">
+                    IMPORTED · ARCGIS · {arcgisLayers.length}
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {arcgisLayers.map((l) => (
+                      <div key={l.id}
+                           className="flex items-center gap-2.5 px-1 py-[5px] rounded-md hover:bg-white/[0.03] transition-colors cursor-pointer group/arc"
+                           onClick={() => onToggleArcgis?.(l.id)}>
+                        <ToggleSwitch active={l.visible} onClick={() => {}} />
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: l.color }} />
+                        <span className={`text-[10px] font-mono uppercase tracking-wider flex-1 truncate transition-colors ${l.visible ? 'text-white/70' : 'text-white/35'}`}
+                              title={l.title}>
+                          {l.title}
+                        </span>
+                        {onRemoveArcgis && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onRemoveArcgis(l.id); }}
+                            title="Remove this layer"
+                            className="text-[10px] font-mono text-white/20 hover:text-[var(--alert-red)] opacity-0 group-hover/arc:opacity-100 transition">
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
 
       {/* Subtle separator */}
