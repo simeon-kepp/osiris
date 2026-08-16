@@ -30,6 +30,7 @@ const EntityGraphPanel = dynamic(() => import('@/components/EntityGraphPanel'));
 const ReasoningPanel = dynamic(() => import('@/components/ReasoningPanel'));
 const ReasoningFeed = dynamic(() => import('@/components/ReasoningFeed'));
 const AiAnalyst = dynamic(() => import('@/components/AiAnalyst'));
+const EvidencePanel = dynamic(() => import('@/components/EvidencePanel'));
 
 // Total raw GeoJSON the dashboard will hold from ArcGIS at once. Measured the
 // hard way: importing six full-attribute layers killed the renderer (Chrome
@@ -157,6 +158,9 @@ export default function Dashboard() {
   // where you go to check whether it is right.
   const [reasoningFocus, setReasoningFocus] = useState<string | undefined>();
   const [showAnalyst, setShowAnalyst] = useState(false);
+  // The node whose sources are open. Separate from reasoningFocus: one is
+  // what the model is looking at, the other is what the record says about it.
+  const [evidenceNode, setEvidenceNode] = useState<string | null>(null);
   // DINGIR's gated surfaces. null = signed out; authAvailable is false on the
   // public demo, where the sign-in affordance is hidden too.
   const [dingirLogin, setDingirLogin] = useState<string | null>(null);
@@ -262,16 +266,24 @@ export default function Dashboard() {
   const [showArcGIS, setShowArcGIS] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [arcgisRestoring, setArcgisRestoring] = useState(false);
+  // Read inside the viewport effect. Depending on arcgisLayers directly would
+  // re-run the effect on every geojson it writes: an infinite fetch loop.
+  const arcgisLayersRef = useRef<typeof arcgisLayers>([]);
   const [arcgisNote, setArcgisNote] = useState<string | null>(null);
 
-  // WHAT IS PERSISTED IS THE CHOICE, NOT THE GEOMETRY.
+  // WHAT IS PERSISTED IS THE CHOICE, AND WHAT IS FETCHED IS THE VIEWPORT.
   //
-  // An imported layer is up to 2000 features; six of them took the tab out with
-  // Chrome error 61696, renderer out of memory. localStorage caps at 5-10MB and
-  // could not hold one of them anyway. So the reference is stored -- id, title,
-  // url, colour, visibility, opacity, a few hundred bytes -- and the geometry is
-  // refetched on load. The selection survives a refresh; the weight does not
-  // have to.
+  // The first version of this held each layer as a complete dataset in React
+  // state, which is why the tab kept dying. Measured on the real services: the
+  // seven preset layers hold 152,000 features between them -- US electric power
+  // transmission alone is 94,619 -- and the 2,000-feature cap meant the map was
+  // showing 2% of them everywhere while carrying the weight of a full download.
+  //
+  // Loading only what is ON SCREEN removes the problem rather than capping it.
+  // Memory then scales with the size of the window, not the size of the
+  // dataset, and at any zoom you see everything there is to see rather than an
+  // arbitrary 2%. localStorage was never the constraint -- it only ever held
+  // these few hundred bytes of reference.
   useEffect(() => {
     try {
       const raw = localStorage.getItem('dingir-arcgis-layers');
@@ -283,39 +295,13 @@ export default function Dashboard() {
           ? DEFAULT_ARCGIS_LAYERS.map(l => ({ ...l, visible: true, opacity: 0.8 }))
           : JSON.parse(raw);
       if (!Array.isArray(refs) || !refs.length) return;
-      setArcgisRestoring(true);
-      let cancelled = false;
-      (async () => {
-        let bytes = 0;
-        const restored: typeof arcgisLayers = [];
-        const dropped: string[] = [];
-        // Sequential, not Promise.all: six concurrent multi-megabyte parses is
-        // the same memory spike that caused the crash, just compressed into one
-        // moment.
-        for (const ref of refs) {
-          if (cancelled) return;
-          try {
-            const res = await fetch(`/api/arcgis?service=${encodeURIComponent(ref.url)}`);
-            if (!res.ok) { dropped.push(ref.title); continue; }
-            const text = await res.text();
-            // A HARD CEILING, and a message rather than a crash. Without this the
-            // failure mode is the whole tab dying with no explanation, which is
-            // exactly what happened.
-            if (bytes + text.length > ARCGIS_BUDGET_BYTES) { dropped.push(ref.title); continue; }
-            bytes += text.length;
-            restored.push({ ...ref, geojson: JSON.parse(text) });
-          } catch { dropped.push(ref.title); }
-        }
-        if (cancelled) return;
-        setArcgisLayers(restored);
-        setArcgisRestoring(false);
-        setArcgisNote(dropped.length
-          ? `${restored.length} layer${restored.length === 1 ? '' : 's'} restored; ${dropped.length} left out to stay inside the ${Math.round(ARCGIS_BUDGET_BYTES / 1e6)} MB budget: ${dropped.join(', ')}`
-          : null);
-      })();
-      return () => { cancelled = true; };
+      // Geometry deliberately absent: the viewport effect below fills it in for
+      // wherever the map happens to be pointing.
+      setArcgisLayers(refs.map(r => ({ ...r, geojson: null })));
     } catch { /* a corrupt entry is not worth failing the whole dashboard for */ }
   }, []);
+
+  useEffect(() => { arcgisLayersRef.current = arcgisLayers; }, [arcgisLayers]);
 
   // Written on every change, geometry stripped.
   useEffect(() => {
@@ -326,6 +312,43 @@ export default function Dashboard() {
     } catch { /* quota or private mode; the session still works */ }
   }, [arcgisLayers]);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
+
+  // Refetch every visible layer for the current viewport.
+  const arcgisKey = arcgisLayers.filter(l => l.visible).map(l => l.id).join('|');
+  const bounds = mapCenter?.bounds;
+  useEffect(() => {
+    if (!arcgisKey || !bounds) return;
+    const bbox = `${bounds.west.toFixed(3)},${bounds.south.toFixed(3)},${bounds.east.toFixed(3)},${bounds.north.toFixed(3)}`;
+    const ctrl = new AbortController();
+    // Debounced: moveend fires on every pan and zoom, and a fetch per twitch
+    // would hammer both this process and Esri.
+    const timer = setTimeout(async () => {
+      const ids = arcgisKey.split('|');
+      let capped = 0;
+      for (const id of ids) {
+        const layer = arcgisLayersRef.current.find(l => l.id === id);
+        if (!layer) continue;
+        try {
+          const res = await fetch(
+            `/api/arcgis?service=${encodeURIComponent(layer.url)}&bbox=${encodeURIComponent(bbox)}`,
+            { signal: ctrl.signal });
+          if (!res.ok) continue;
+          const gj = await res.json();
+          if (ctrl.signal.aborted) return;
+          const n = gj?.features?.length ?? 0;
+          // Exactly at the cap means there is more in view than was returned.
+          if (n >= 2000) capped++;
+          setArcgisLayers(prev => prev.map(l =>
+            l.id === id ? { ...l, geojson: gj, featureCount: n, capped: n >= 2000 } : l));
+        } catch { /* aborted by the next move, or the service is down */ }
+      }
+      setArcgisNote(capped > 0
+        ? `${capped} layer${capped === 1 ? '' : 's'} hit the 2,000-feature limit for this view. Zoom in to see the rest.`
+        : null);
+    }, 550);
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, [arcgisKey, bounds?.west, bounds?.south, bounds?.east, bounds?.north]);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'remote'|null>(null);
   const [mapProjection, setMapProjection] = useState<'globe'|'mercator'>('globe');
@@ -1462,19 +1485,15 @@ export default function Dashboard() {
                 <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
                   <div className="glass-panel p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
                   <ArcGISPanel
-                    onImportLayer={(layer) => setArcgisLayers(prev => {
-                      // The same ceiling on the live path. Guarding only the
-                      // restore would mean the crash is prevented on reload and
-                      // still available on click, which is the wrong half.
-                      const next = [...prev.filter(l => l.id !== layer.id), { ...layer, color: layer.color || '#D4AF37', visible: true, opacity: layer.opacity ?? 0.8 }];
-                      const bytes = next.reduce((s, l) => s + (l.geojson ? JSON.stringify(l.geojson).length : 0), 0);
-                      if (bytes > ARCGIS_BUDGET_BYTES) {
-                        setArcgisNote(`"${layer.title}" would take the imported layers past ${Math.round(ARCGIS_BUDGET_BYTES / 1e6)} MB. Remove one first.`);
-                        return prev;
-                      }
-                      setArcgisNote(null);
-                      return next;
-                    })}
+                    onImportLayer={(layer) => setArcgisLayers(prev => [
+                      ...prev.filter(l => l.id !== layer.id),
+                      // Geometry from the import is kept for the first paint;
+                      // the viewport effect replaces it on the next map move.
+                      // No byte budget any more -- a viewport-scoped layer is
+                      // at most 2,000 features of what is on screen, however
+                      // large the dataset behind it is.
+                      { ...layer, color: layer.color || '#D4AF37', visible: true, opacity: layer.opacity ?? 0.8 },
+                    ])}
                     onRemoveLayer={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))}
                     onUpdateLayer={(id, updates) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l))}
                     importedLayers={arcgisLayers}
@@ -1782,6 +1801,7 @@ export default function Dashboard() {
       {showReasoningPanel && (
         <ReasoningPanel
           focusNode={reasoningFocus}
+          onShowEvidence={(id) => setEvidenceNode(id)}
           onClose={() => { setShowReasoningPanel(false); setReasoningFocus(undefined); }}
         />
       )}
@@ -1823,6 +1843,15 @@ export default function Dashboard() {
           focusNode={reasoningFocus}
           open={showAnalyst}
           onClose={() => setShowAnalyst(false)}
+        />
+      )}
+
+      {/* ── Evidence: what the corpus records, with its sources ── */}
+      {dingirLogin && evidenceNode && (
+        <EvidencePanel
+          node={evidenceNode}
+          onOpenNode={(id) => setEvidenceNode(id)}
+          onClose={() => setEvidenceNode(null)}
         />
       )}
 

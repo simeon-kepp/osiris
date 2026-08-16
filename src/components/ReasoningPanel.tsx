@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import { X, Search, Loader2, Maximize2, Minimize2, FileText } from 'lucide-react';
 import NetworkView, { TYPE_SWATCH, type NetworkGraph } from './NetworkView';
 
 // DINGIR Reasoning Panel — a whitebox view into DINGIR's trained graph-node
@@ -59,12 +59,16 @@ type Screen = { x: number; y: number; r: number; depth: number; word: string };
 
 interface Props {
   onClose: () => void;
+  /** Open the evidence for a node: what the corpus records, as opposed to what
+   *  this panel shows, which is what the model learned. Two different questions
+   *  and the difference is the whole premise. */
+  onShowEvidence?: (nodeId: string) => void;
   /** Node id to open on, e.g. handed over from a feed entry. Falls back to a
    *  known-populated node so the panel is never blank on first open. */
   focusNode?: string;
 }
 
-export default function ReasoningPanel({ onClose, focusNode }: Props) {
+export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: Props) {
   const [input, setInput] = useState('');
   const [node, setNode] = useState('');
   // 'network' is a different renderer, not a different projection: 2d/3d draw
@@ -351,6 +355,15 @@ export default function ReasoningPanel({ onClose, focusNode }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {/* Everything else in this panel is the model's opinion. This is the
+                one control that leaves it for the record. */}
+            {onShowEvidence && node && (
+              <button onClick={() => onShowEvidence(node)} title={`What the corpus records about ${node}`}
+                className="flex items-center gap-1 rounded px-2 py-1 text-[9px] font-mono tracking-wide border border-white/15 text-[var(--text-secondary)] hover:border-[var(--cyan-primary)]/50 hover:text-[var(--cyan-primary)] transition">
+                <FileText className="w-3 h-3" />
+                EVIDENCE
+              </button>
+            )}
             {/* The 3D embedding cloud is unreadable at 520px -- labels overlap into
                 a smear. Full width is the difference between a decoration and a tool. */}
             <button onClick={() => setExpanded(e => !e)}
