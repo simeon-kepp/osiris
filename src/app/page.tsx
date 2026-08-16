@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, LogIn, LogOut } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -21,6 +21,7 @@ import GlobalStatusBar from '@/components/GlobalStatusBar';
 import LiveAlerts from '@/components/LiveAlerts';
 import WorldRemote from '@/components/WorldRemote';
 import ArcGISPanel from '@/components/ArcGISPanel';
+import { LAYER_STORAGE_KEY, applyLayers, pickSavedLayers, serializeLayers } from '@/lib/layerState';
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const CameraViewer = dynamic(() => import('@/components/CameraViewer'));
@@ -112,6 +113,10 @@ export default function Dashboard() {
   const [showIntel, setShowIntel] = useState(false);
   const [showEntityGraph, setShowEntityGraph] = useState(false);
   const [showReasoningPanel, setShowReasoningPanel] = useState(false);
+  // DINGIR's gated surfaces. null = signed out; authAvailable is false on the
+  // public demo, where the sign-in affordance is hidden too.
+  const [dingirLogin, setDingirLogin] = useState<string | null>(null);
+  const [dingirAuthAvailable, setDingirAuthAvailable] = useState(false);
   const [showDesktopSearch, setShowDesktopSearch] = useState(false);
   const [showDirections, setShowDirections] = useState(false);
   const [activeRoute, setActiveRoute] = useState<
@@ -130,6 +135,19 @@ export default function Dashboard() {
   const [navProgress, setNavProgress] = useState<NavProgress | null>(null);
   const [watchedFlights, setWatchedFlights] = useState<WatchedFlight[]>([]);
   const [aircraftAirports, setAircraftAirports] = useState<Record<string, Airport[]>>({});
+
+  // Who, if anyone, is signed in to DINGIR's gated surfaces. One call on mount;
+  // the server re-checks the allowlist on every gated request anyway, so this
+  // is only about what the UI offers, never about what it is allowed to reach.
+  useEffect(() => {
+    fetch('/api/auth/session')
+      .then(r => r.json())
+      .then((d: { login: string | null; authAvailable: boolean }) => {
+        setDingirLogin(d.login);
+        setDingirAuthAvailable(d.authAvailable);
+      })
+      .catch(() => {});
+  }, []);
 
   // The popup lives in raw map HTML, so it hands aircraft over through a global.
   useEffect(() => {
@@ -273,16 +291,14 @@ export default function Dashboard() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Restore active layers from URL if present
+    // Restore active layers: URL first (a shared link must win), then whatever
+    // was last selected on this machine. Without the storage half, opening the
+    // app at a bare URL -- what `dingir` does on every start -- silently reset
+    // every toggle.
     const p = new URLSearchParams(window.location.search);
-    const layers = p.get('layers');
-    if (layers) {
-      const active = layers.split(',');
-      setActiveLayers(prev => {
-        const next = { ...prev };
-        Object.keys(next).forEach(k => { (next as any)[k] = active.includes(k); });
-        return next;
-      });
+    const saved = pickSavedLayers(p.get('layers'), localStorage.getItem(LAYER_STORAGE_KEY));
+    if (saved !== null) {
+      setActiveLayers(prev => applyLayers(prev, saved) as typeof prev);
     }
 
     // Probe which credential-gated feeds this deployment has configured, so the
@@ -314,9 +330,9 @@ export default function Dashboard() {
     if (typeof window === 'undefined') return;
     if (urlTimer.current) clearTimeout(urlTimer.current);
     urlTimer.current = setTimeout(() => {
-      const active = Object.entries(activeLayers).filter(([,v]) => v).map(([k]) => k).join(',');
-      const url = `${window.location.pathname}?layers=${active}`;
-      window.history.replaceState(null, '', url);
+      const active = serializeLayers(activeLayers);
+      window.history.replaceState(null, '', `${window.location.pathname}?layers=${active}`);
+      try { localStorage.setItem(LAYER_STORAGE_KEY, active); } catch { /* private mode / quota */ }
     }, 1500);
   }, [activeLayers]);
 
@@ -1148,6 +1164,29 @@ export default function Dashboard() {
         {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
 
         <span className="text-[10px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.4.1</span>
+
+        {/* DINGIR access, top right. Only rendered where GitHub OAuth is actually
+            configured, so the public demo never offers a login it can't honour.
+            The status bar is pointer-events-none, hence the explicit re-enable. */}
+        {dingirAuthAvailable && (
+          <span className="pointer-events-auto flex items-center gap-1.5 pl-2 ml-0.5 border-l border-white/10">
+            {dingirLogin ? (
+              <form action="/api/auth/logout" method="post" className="flex items-center gap-1.5">
+                <span className="hidden lg:inline text-[var(--cyan-primary)] font-bold tracking-widest">{dingirLogin.toUpperCase()}</span>
+                <button type="submit" title={`Signed in as ${dingirLogin} — sign out`}
+                  className="flex items-center justify-center w-6 h-6 rounded-full hover:bg-white/10 transition-colors">
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            ) : (
+              <a href="/api/auth/login" title="Sign in with GitHub to reach DINGIR's reasoning panel"
+                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-2.5 py-1 hover:border-[var(--cyan-primary)]/60 hover:text-[var(--text-primary)] transition-colors">
+                <LogIn className="w-3 h-3" />
+                <span className="font-bold tracking-widest">SIGN IN</span>
+              </a>
+            )}
+          </span>
+        )}
       </motion.div>
 
 
@@ -1213,12 +1252,17 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">GRAPH</span>
         </div>
 
+        {/* Gated: the reasoning panel exposes DINGIR's trained embedding space.
+            Hidden entirely when signed out, so the public demo shows no trace of it. */}
+        {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => { setShowReasoningPanel(!showReasoningPanel); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningPanel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Reasoning Panel — DINGIR's trained graph-embedding space">
+          <button onClick={() => { setShowReasoningPanel(!showReasoningPanel); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningPanel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={`Reasoning Panel — DINGIR's trained graph-embedding space (signed in as ${dingirLogin})`}>
             <Brain className={`w-4 h-4 ${showReasoningPanel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">REASONING</span>
         </div>
+        )}
+
 
         <div className="relative group">
           <button onClick={() => { setShowDirections(!showDirections); if (showDirections) { setActiveRoute(null); } setShowDesktopSearch(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDirections ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="Directions — turn-by-turn routing">

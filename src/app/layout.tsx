@@ -1,6 +1,31 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import ErrorBoundary from '@/components/ErrorBoundary';
 import "./globals.css";
+
+// Self-hosted at build time instead of the @import to fonts.googleapis.com that
+// used to sit at the top of globals.css. That import was not arriving here, so
+// every Inter weight sat at status "unloaded" and the browser fell through the
+// stack to -apple-system and then to the system sans -- which on Linux is
+// Roboto. The site was rendering in a font nobody chose, and nothing in the CSS
+// said "Roboto" anywhere, which is why it was easy to miss.
+//
+// next/font also removes the runtime request to Google entirely: the files are
+// served from this origin. For a product that sells itself on being inspectable
+// and not leaking its visitors, shipping a third-party font call on every page
+// load was the wrong default regardless of whether it worked.
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-body-src",
+  display: "swap",
+});
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-hud-src",
+  display: "swap",
+});
 
 const SITE_URL = "https://osirisai.live";
 const SITE_NAME = "DINGIR";
@@ -180,10 +205,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" dir="ltr">
+    // suppressHydrationWarning: browser extensions inject attributes onto <html>
+    // before React hydrates (seen: data-expander-initialized). Nothing we render
+    // differs between server and client here, so the warning is pure noise.
+    <html lang="en" dir="ltr" suppressHydrationWarning
+          className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* The preconnects to fonts.googleapis.com went with the @import: there
+            is no longer a third-party font request to warm up. */}
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />

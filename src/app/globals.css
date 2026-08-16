@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+/* Fonts are self-hosted via next/font in layout.tsx. The @import that used to
+   sit here never arrived, so every weight stayed unloaded and the browser fell
+   through to the system sans. It was also a third-party request on every page
+   load, which this project should not be making. */
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -60,8 +63,13 @@
   --hover-accent: rgba(var(--gold-rgb), 0.08);
 
   /* ── Fonts ── */
-  --font-hud: 'JetBrains Mono', 'Courier New', monospace;
-  --font-body: 'Inter', -apple-system, sans-serif;
+  /* next/font injects --font-hud-src / --font-body-src on <html> with the
+     self-hosted family name. Referenced rather than overwritten so the
+     fallback chain stays visible, and so a missing font degrades to a
+     deliberate choice instead of silently to the system sans (which on
+     Linux is Roboto -- the bug this replaced). */
+  --font-hud: var(--font-hud-src), 'JetBrains Mono', 'Courier New', monospace;
+  --font-body: var(--font-body-src), 'Inter', -apple-system, sans-serif;
 
   /* ── Spacing (responsive) ── */
   --panel-gap: 12px;

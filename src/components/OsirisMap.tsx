@@ -188,7 +188,12 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       const isGhost = theme === 'ghost';
       const phantomPurple = '#B388FF';
       const phantomDark = '#1A0040';
-      const cameraColor = isGhost ? '#B388FF' : '#00E676';
+      // Was #00E676 (Material Green A400), the most luminous green in that
+      // palette. Against a near-black basemap a thousand of those read as a
+      // rash rather than a layer, and they out-shouted every other marker on
+      // the map. Same hue, luminance dropped a step, so a dense cluster still
+      // reads as one layer instead of glare (live feedback 2026-08-16).
+      const cameraColor = isGhost ? '#B388FF' : '#0FB86A';
       const flightCom = isGhost ? phantomPurple : '#00E5FF';
       const flightPriv = isGhost ? phantomPurple : '#FFD700';
       const flightGov = isGhost ? phantomPurple : '#FF9500';

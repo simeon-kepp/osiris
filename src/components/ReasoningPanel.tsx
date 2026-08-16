@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Loader2 } from 'lucide-react';
+import { X, Search, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import NetworkView, { TYPE_SWATCH, type NetworkGraph } from './NetworkView';
 
 // DINGIR Reasoning Panel — a whitebox view into DINGIR's trained graph-node
 // embeddings, the same idea as Albert's/Lighthouse's "Mycelium Inspector"
@@ -61,26 +62,89 @@ interface Props { onClose: () => void }
 export default function ReasoningPanel({ onClose }: Props) {
   const [input, setInput] = useState('');
   const [node, setNode] = useState('');
-  const [mode, setMode] = useState<'2d' | '3d'>('3d');
+  // 'network' is a different renderer, not a different projection: 2d/3d draw
+  // one node's neighbourhood on a canvas, network draws the entire graph in
+  // WebGL from precomputed embedding coordinates. See NetworkView.tsx for why
+  // the canvas renderer cannot be reused at that scale.
+  const [mode, setMode] = useState<'2d' | '3d' | 'network'>('3d');
+  const [graph, setGraph] = useState<NetworkGraph | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState<string | null>(null);
+  const [visibleProv, setVisibleProv] = useState<Set<string>>(new Set(['OBSERVED', 'DERIVED', 'PREDICTED']));
   const [data, setData] = useState<MycResp | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Node ids are exact strings like "APP:Pokemon GO" across 1026 nodes, so the
+  // box needs to suggest rather than expect them typed from memory.
+  const [suggestions, setSuggestions] = useState<{ id: string; type: string }[]>([]);
+  const [nodeTotal, setNodeTotal] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const fetchNode = useCallback((word: string) => {
     const q = word.trim();
     if (!q) return;
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setSuggestions([]);
     fetch(`/api/reasoning/mycelium?node=${encodeURIComponent(q)}&k=60`)
-      .then(r => r.json())
+      .then(async r => {
+        // The gate answers 404 with an empty body, so status has to be checked
+        // before parsing -- r.json() on an empty body throws a syntax error
+        // that would surface as noise instead of "you are signed out".
+        if (r.status === 404) throw new Error('Signed out — sign in with GitHub to use the reasoning panel.');
+        return r.json() as Promise<MycResp>;
+      })
       .then((d: MycResp) => {
         if (d.error) { setError(d.error); setData(null); }
         else { setData(d); setNode(q); }
       })
-      .catch(e => setError(String(e)))
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);
 
-  const submit = (e: FormEvent) => { e.preventDefault(); fetchNode(input); };
+  // Debounced so a fast typist doesn't fire one request per keystroke. The
+  // node list is cached server-side, so these are cheap after the first.
+  useEffect(() => {
+    const q = input.trim();
+    if (!q || q === node) { setSuggestions([]); return; }
+    const t = setTimeout(() => {
+      fetch(`/api/reasoning/nodes?q=${encodeURIComponent(q)}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then((d: { nodes?: { id: string; type: string }[]; total?: number } | null) => {
+          if (!d) return;
+          setSuggestions(d.nodes ?? []);
+          if (typeof d.total === 'number') setNodeTotal(d.total);
+        })
+        .catch(() => {});
+    }, 180);
+    return () => clearTimeout(t);
+  }, [input, node]);
+
+  // Fetched once, on first switch into network mode: the payload is derived
+  // from a model trained by a batch job, so re-fetching per open would only add
+  // latency. The proxy caches it server-side too.
+  useEffect(() => {
+    if (mode !== 'network' || graph || graphLoading) return;
+    setGraphLoading(true); setGraphError(null);
+    fetch('/api/reasoning/graph')
+      .then(async r => {
+        if (r.status === 404) throw new Error('Signed out — sign in with GitHub to load the network.');
+        return r.json() as Promise<NetworkGraph>;
+      })
+      .then(d => { if (d.error) setGraphError(d.error); else setGraph(d); })
+      .catch(e => setGraphError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setGraphLoading(false));
+  }, [mode, graph, graphLoading]);
+
+  const toggleProv = (p: string) => setVisibleProv(prev => {
+    const next = new Set(prev);
+    if (next.has(p)) next.delete(p); else next.add(p);
+    return next;
+  });
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    // Enter on a typed prefix should do the obvious thing: take the top match.
+    fetchNode(suggestions.length && !suggestions.some(s => s.id === input.trim()) ? suggestions[0].id : input);
+  };
   const ok = !!data && !data.error;
 
   const sims = ok ? data!.neighbors.map(n => n.sim) : [];
@@ -243,7 +307,11 @@ export default function ReasoningPanel({ onClose }: Props) {
       cv.removeEventListener('wheel', onWheel);
       cv.removeEventListener('dblclick', onDbl);
     };
-  }, [fetchNode]);
+  // `mode` is a dependency because switching to 'network' unmounts this
+  // canvas and switching back mounts a NEW element. Without it the effect
+  // keeps a reference to the removed canvas and the 2d/3d view comes back
+  // blank.
+  }, [fetchNode, mode]);
 
   useEffect(() => { fetchNode('APP:Pokemon GO'); }, [fetchNode]);
 
@@ -252,7 +320,7 @@ export default function ReasoningPanel({ onClose }: Props) {
       <motion.div
         initial={{ x: 500, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 500, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed top-0 right-0 h-full z-[500] flex flex-col glass-panel w-[520px] max-w-[92vw]"
+        className={`fixed top-0 right-0 h-full z-[500] flex flex-col glass-panel ${expanded ? 'w-screen' : 'w-[520px] max-w-[92vw]'}`}
         style={{ borderLeft: '1px solid var(--border-primary)', borderRight: 'none', borderTop: 'none', borderBottom: 'none', borderRadius: 0 }}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
@@ -262,28 +330,69 @@ export default function ReasoningPanel({ onClose }: Props) {
               DINGIR graph-embedding inspector {ok && `· ${data!.vocab_size} nodes · dim ${data!.dims} · PCA`}
             </div>
           </div>
-          <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
-            <X className="w-4 h-4 text-[var(--text-muted)]" />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* The 3D embedding cloud is unreadable at 520px -- labels overlap into
+                a smear. Full width is the difference between a decoration and a tool. */}
+            <button onClick={() => setExpanded(e => !e)}
+              title={expanded ? 'Collapse to side panel' : 'Expand to full screen'}
+              className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
+              {expanded
+                ? <Minimize2 className="w-4 h-4 text-[var(--text-muted)]" />
+                : <Maximize2 className="w-4 h-4 text-[var(--text-muted)]" />}
+            </button>
+            <button onClick={onClose} title="Close" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
+              <X className="w-4 h-4 text-[var(--text-muted)]" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={submit} className="flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.06] shrink-0">
           <div className="flex rounded-md border border-white/10 bg-black/30 p-0.5">
-            {(['2d', '3d'] as const).map(m => (
+            {(['2d', '3d', 'network'] as const).map(m => (
               <button key={m} type="button" onClick={() => setMode(m)}
+                title={m === 'network' ? 'The entire graph, not one node\'s neighbourhood' : undefined}
                 className={`rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider transition ${mode === m ? 'bg-[var(--cyan-primary)]/20 text-[var(--cyan-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>
-                {m}
+                {m === 'network' ? 'ALL' : m}
               </button>
             ))}
           </div>
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Search a node id..."
-            className="flex-1 min-w-0 rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] font-mono text-[var(--text-primary)] outline-none focus:border-[var(--cyan-primary)]/60" />
+          <div className="relative flex-1 min-w-0">
+            <input value={input} onChange={e => setInput(e.target.value)} autoComplete="off"
+              placeholder={nodeTotal ? `Search ${nodeTotal} nodes...` : 'Search a node...'}
+              className="w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] font-mono text-[var(--text-primary)] outline-none focus:border-[var(--cyan-primary)]/60" />
+            {suggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-white/10 bg-[#0a0a0a] shadow-xl">
+                {suggestions.map(s => (
+                  <button key={s.id} type="button" onClick={() => { setInput(s.id); fetchNode(s.id); }}
+                    className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-[10px] font-mono text-[var(--text-primary)] hover:bg-white/5 transition-colors">
+                    <span className="truncate">{s.id}</span>
+                    <span className="shrink-0 text-[8px] uppercase tracking-wider text-[var(--text-muted)]">{s.type}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button type="submit" className="w-7 h-7 rounded-md border border-white/10 bg-black/30 flex items-center justify-center hover:border-[var(--cyan-primary)]/60 shrink-0">
             <Search className="w-3.5 h-3.5 text-[var(--text-muted)]" />
           </button>
         </form>
 
         <div className="relative flex-1 min-h-0 p-3">
+          {mode === 'network' ? (
+            graph ? (
+              <NetworkView graph={graph} visibleProvenance={visibleProv}
+                onPick={n => { setMode('3d'); setInput(n.id); fetchNode(n.id); }} />
+            ) : (
+              <div className="relative h-full w-full rounded-lg border border-white/[0.08] bg-black flex items-center justify-center px-6 text-center">
+                {graphError
+                  ? <span className="text-[11px] text-[var(--alert-red)]">{graphError}</span>
+                  : <span className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Loading the whole network... the first request trains the model, which takes a moment.
+                    </span>}
+              </div>
+            )
+          ) : (
           <div ref={wrapRef} className="relative h-full w-full overflow-hidden rounded-lg border border-white/[0.08] bg-black">
             <canvas ref={canvasRef} className="absolute inset-0 h-full w-full cursor-grab active:cursor-grabbing touch-none" />
             {loading && (
@@ -298,9 +407,41 @@ export default function ReasoningPanel({ onClose }: Props) {
               </div>
             )}
           </div>
+          )}
         </div>
 
         <div className="shrink-0 max-h-[35%] min-h-0 overflow-y-auto border-t border-white/[0.06] px-3 py-2">
+          {mode === 'network' && graph ? (
+            /* Provenance is a legend AND a filter, not decoration. An edge
+               computed from a hostname must be distinguishable from one that
+               came out of an audit finding, or the picture invites being read
+               as if all of it were observed. */
+            <div className="px-1">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                {graph.node_count} nodes · {graph.edge_count} edges · position = PCA of the learned embedding
+              </div>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {Object.entries(graph.provenance).map(([p, count]) => (
+                  <button key={p} onClick={() => toggleProv(p)}
+                    title={p === 'OBSERVED' ? 'Came out of an audit finding' : 'Computed from a real field, not observed'}
+                    className={`rounded px-2 py-1 text-[9px] font-mono tracking-wide border transition ${
+                      visibleProv.has(p)
+                        ? 'border-[var(--cyan-primary)]/50 text-[var(--cyan-primary)] bg-[var(--cyan-primary)]/10'
+                        : 'border-white/10 text-[var(--text-muted)] line-through'}`}>
+                    {p} {count}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {graph.types.map(t => (
+                  <span key={t} className="flex items-center gap-1.5 text-[9px] font-mono text-[var(--text-muted)]">
+                    <span className="h-2 w-2 rounded-full" style={{ background: TYPE_SWATCH[t] || '#80808c' }} />
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (<>
           <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5 px-1">
             {ok ? `${data!.neighbors.length} nearest neighbours` : 'Neighbours'}
           </div>
@@ -314,6 +455,7 @@ export default function ReasoningPanel({ onClose }: Props) {
               <span className="ml-2 shrink-0 text-[var(--text-muted)]">{n.sim.toFixed(3)}</span>
             </button>
           ))}
+          </>)}
         </div>
       </motion.div>
     </AnimatePresence>
