@@ -19,6 +19,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { IntelligenceContext, GraphContext, GraphEdgeFact } from '@/lib/ai-engine';
+import { useLocale } from '@/lib/LocaleProvider';
 
 /* ═══════════════════════════════════════════════════════════════
    DINGIR — AI Intelligence Analyst Panel
@@ -302,6 +303,7 @@ function renderMarkdown(text: string): string {
    ───────────────────────────────────────────────────────────── */
 
 export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose }: AiAnalystProps) {
+  const { t: tr } = useLocale();
   const isOpen = open;
   const setIsOpen = (v: boolean) => { if (!v) onClose(); };
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -539,7 +541,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                     <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[var(--alert-green)] animate-osiris-pulse" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="hud-text text-[13px] text-[var(--text-heading)]">DINGIR</span>
+                    <span className="hud-text text-[13px] text-[var(--text-heading)]">{tr('analyst.title')}</span>
                     <span className="text-[9px] font-mono tracking-[0.15em] text-[var(--text-muted)]">
                       {providerLabel}
                     </span>
@@ -685,7 +687,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
 
                     <div className="space-y-2">
                       <h3 className="hud-text text-[12px] text-[var(--text-heading)]">
-                        INTELLIGENCE ANALYST READY
+                        {tr('analyst.ready')}
                       </h3>
                       <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed max-w-[300px]">
                         I correlate live seismic, OSINT, threat, and cyber data to deliver actionable intelligence assessments.
@@ -850,7 +852,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                     }}
                   >
                     <Eye className="w-3 h-3" />
-                    GET BRIEFING
+                    {tr('analyst.briefing')}
                   </button>
                   <div className="flex-1" />
                   <span className="flex items-center text-[9px] font-mono text-[var(--text-muted)] tracking-wider">
@@ -873,7 +875,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="Query the intelligence analyst..."
+                      placeholder={tr('analyst.placeholder')}
                       rows={1}
                       className="w-full bg-transparent px-3 py-2.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none"
                       style={{ maxHeight: '120px', minHeight: '36px' }}

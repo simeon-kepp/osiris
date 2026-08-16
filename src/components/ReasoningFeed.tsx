@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Radio, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import { useLocale } from '@/lib/LocaleProvider';
 
 // What DINGIR is currently noticing, readable like an RSS feed.
 //
@@ -65,6 +66,7 @@ interface Props {
 }
 
 export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
+  const { t: tr } = useLocale();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +97,7 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
     es.onerror = () => {
       setConnected(false);
       // EventSource reconnects on its own; saying "lost" would be wrong.
-      setError('reconnecting...');
+      setError(tr('feed.reconnecting'));
     };
     return () => es.close();
   }, []);
@@ -123,12 +125,12 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
           <div>
             <div className="hud-text text-[13px] text-[var(--text-primary)] flex items-center gap-2">
               <Radio className={`w-3.5 h-3.5 ${connected ? 'text-[var(--cyan-primary)]' : 'text-[var(--text-muted)]'}`} />
-              REASONING FEED
+              {tr('feed.title')}
             </div>
             <div className="text-[9px] text-[var(--text-muted)] font-mono tracking-wide">
               {snapshot
                 ? `${snapshot.graph.nodes} nodes · ${snapshot.graph.edges} edges${lastUpdate ? ` · updated ${new Date(lastUpdate).toLocaleTimeString()}` : ''}`
-                : (error || 'connecting...')}
+                : (error || tr('feed.connecting'))}
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -165,11 +167,11 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
           {!snapshot ? (
             <div className="flex h-full items-center justify-center gap-2 px-6 text-center text-[11px] text-[var(--text-muted)]">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              waiting for the first snapshot... a cold engine trains before it can answer.
+              {tr('feed.waiting')}
             </div>
           ) : shown.length === 0 ? (
             <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-[var(--text-muted)]">
-              nothing of this kind right now.
+              {tr('feed.empty')}
             </div>
           ) : shown.map((item, i) => {
             const st = KIND_STYLE[item.kind] || FALLBACK_STYLE;
@@ -197,7 +199,7 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
                   // Spelled out on every single entry, not just in the legend.
                   // A reader scrolling a feed does not carry the legend with them.
                   <p className="mt-1 text-[9px] font-mono tracking-wide text-[#b388ff]">
-                    HYPOTHESIS · no evidence behind this · {item.epistemic_status || 'PLAUSIBLE'}
+                    {tr('feed.hypothesis')} {item.epistemic_status || 'PLAUSIBLE'}
                   </p>
                 )}
               </div>

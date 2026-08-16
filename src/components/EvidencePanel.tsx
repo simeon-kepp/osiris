@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, ExternalLink, Loader2, Hash } from 'lucide-react';
+import { useLocale } from '@/lib/LocaleProvider';
 
 // Where a claim came from.
 //
@@ -54,6 +55,7 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
   onClose: () => void;
   onOpenNode?: (id: string) => void;
 }) {
+  const { t: tr } = useLocale();
   const [data, setData] = useState<Evidence | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,7 +107,7 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
           <div className="min-w-0">
             <div className="hud-text text-[13px] text-[var(--text-primary)] flex items-center gap-2">
               <FileText className="w-3.5 h-3.5 text-[var(--cyan-primary)]" />
-              EVIDENCE
+              {tr('evidence.title')}
             </div>
             <div className="text-[10px] font-mono text-[var(--text-muted)] truncate" title={node}>
               {node}
@@ -120,7 +122,7 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
           {error && <div className="text-[12px] text-[var(--alert-red)]">{error}</div>}
           {!data && !error && (
             <div className="flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> reading the corpus…
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> {tr('evidence.reading')}
             </div>
           )}
 
@@ -138,7 +140,7 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
                   );
                 })}
                 <span className="rounded px-2 py-1 text-[9px] font-mono text-[var(--text-muted)] border border-white/10">
-                  degree {data.degree}
+                  {tr('evidence.degree', String(data.degree))}
                 </span>
               </div>
 
@@ -146,7 +148,7 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
                   the one a person can open and check. */}
               {data.sources.length > 0 && (
                 <section>
-                  <div className="hud-label mb-1.5" style={{ fontSize: '9px' }}>SOURCES</div>
+                  <div className="hud-label mb-1.5" style={{ fontSize: '9px' }}>{tr('evidence.sources')}</div>
                   <div className="space-y-1.5">
                     {data.sources.map(s => (
                       <div key={s.source} className="rounded-lg border border-white/[0.07] p-2">
@@ -179,7 +181,7 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
 
               {Object.keys(data.attributes).length > 0 && (
                 <section>
-                  <div className="hud-label mb-1.5" style={{ fontSize: '9px' }}>RECORDED</div>
+                  <div className="hud-label mb-1.5" style={{ fontSize: '9px' }}>{tr('evidence.recorded')}</div>
                   <div className="rounded-lg border border-white/[0.07] divide-y divide-white/[0.05]">
                     {Object.entries(data.attributes).map(([k, v]) => (
                       <div key={k} className="flex items-baseline gap-3 px-2 py-1.5">
@@ -189,7 +191,7 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
                             // A field the source did not state stays visibly
                             // unstated rather than rendering as an empty cell
                             // that reads like a zero.
-                            ? <em className="text-[var(--text-muted)]">not stated</em>
+                            ? <em className="text-[var(--text-muted)]">{tr('evidence.notStated')}</em>
                             : String(v)}
                         </span>
                       </div>
@@ -201,9 +203,9 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
               {observed.length > 0 && (
                 <section>
                   <div className="hud-label mb-1" style={{ fontSize: '9px', color: PROV_STYLE.OBSERVED.colour }}>
-                    OBSERVED · {observed.length}
+                    {tr('evidence.observed')} · {observed.length}
                   </div>
-                  <p className="text-[10px] text-[var(--text-muted)] mb-1">A source states these.</p>
+                  <p className="text-[10px] text-[var(--text-muted)] mb-1">{tr('evidence.observedNote')}</p>
                   <div>{observed.map(row)}</div>
                 </section>
               )}
@@ -211,10 +213,10 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
               {derived.length > 0 && (
                 <section>
                   <div className="hud-label mb-1" style={{ fontSize: '9px', color: PROV_STYLE.DERIVED.colour }}>
-                    DERIVED · {derived.length}
+                    {tr('evidence.derived')} · {derived.length}
                   </div>
                   <p className="text-[10px] text-[var(--text-muted)] mb-1">
-                    Computed from a stated field. A derivation can be wrong even when the record behind it is right.
+                    {tr('evidence.derivedNote')}
                   </p>
                   <div>{derived.map(row)}</div>
                 </section>
@@ -222,12 +224,12 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
 
               {data.truncated && (
                 <p className="text-[10px] text-[var(--text-muted)]">
-                  More edges exist than are shown. This node is a hub.
+                  {tr('evidence.truncated')}
                 </p>
               )}
               {edges.length === 0 && (
                 <p className="text-[12px] text-[var(--text-muted)]">
-                  No edges recorded for this node. It is in the graph but nothing connects it.
+                  {tr('evidence.noEdges')}
                 </p>
               )}
             </>

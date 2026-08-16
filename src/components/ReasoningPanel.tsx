@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Loader2, Maximize2, Minimize2, FileText } from 'lucide-react';
+import { useLocale } from '@/lib/LocaleProvider';
 import NetworkView, { TYPE_SWATCH, type NetworkGraph } from './NetworkView';
 
 // DINGIR Reasoning Panel — a whitebox view into DINGIR's trained graph-node
@@ -69,6 +70,7 @@ interface Props {
 }
 
 export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: Props) {
+  const { t: tr } = useLocale();
   const [input, setInput] = useState('');
   const [node, setNode] = useState('');
   // 'network' is a different renderer, not a different projection: 2d/3d draw
@@ -349,19 +351,19 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
           <div>
-            <div className="hud-text text-[13px] text-[var(--text-primary)]">REASONING PANEL</div>
+            <div className="hud-text text-[13px] text-[var(--text-primary)]">{tr('reasoning.title')}</div>
             <div className="text-[9px] text-[var(--text-muted)] font-mono tracking-wide">
-              DINGIR graph-embedding inspector {ok && `· ${data!.vocab_size} nodes · dim ${data!.dims} · PCA`}
+              {tr('reasoning.subtitle')} {ok && `· ${data!.vocab_size} nodes · dim ${data!.dims} · PCA`}
             </div>
           </div>
           <div className="flex items-center gap-1">
             {/* Everything else in this panel is the model's opinion. This is the
                 one control that leaves it for the record. */}
             {onShowEvidence && node && (
-              <button onClick={() => onShowEvidence(node)} title={`What the corpus records about ${node}`}
+              <button onClick={() => onShowEvidence(node)} title={tr('reasoning.evidence.title', node)}
                 className="flex items-center gap-1 rounded px-2 py-1 text-[9px] font-mono tracking-wide border border-white/15 text-[var(--text-secondary)] hover:border-[var(--cyan-primary)]/50 hover:text-[var(--cyan-primary)] transition">
                 <FileText className="w-3 h-3" />
-                EVIDENCE
+                {tr('reasoning.evidence')}
               </button>
             )}
             {/* The 3D embedding cloud is unreadable at 520px -- labels overlap into

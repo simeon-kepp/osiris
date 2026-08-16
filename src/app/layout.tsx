@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { LocaleProvider } from '@/lib/LocaleProvider';
 import "./globals.css";
 
 // Self-hosted at build time instead of the @import to fonts.googleapis.com that
@@ -228,7 +229,9 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <ErrorBoundary name="OSIRIS Core">
-          {children}
+          <LocaleProvider>
+            {children}
+          </LocaleProvider>
         </ErrorBoundary>
       </body>
     </html>

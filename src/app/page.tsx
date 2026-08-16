@@ -31,6 +31,7 @@ const ReasoningPanel = dynamic(() => import('@/components/ReasoningPanel'));
 const ReasoningFeed = dynamic(() => import('@/components/ReasoningFeed'));
 const AiAnalyst = dynamic(() => import('@/components/AiAnalyst'));
 const EvidencePanel = dynamic(() => import('@/components/EvidencePanel'));
+import { useLocale } from '@/lib/LocaleProvider';
 
 // Total raw GeoJSON the dashboard will hold from ArcGIS at once. Measured the
 // hard way: importing six full-attribute layers killed the renderer (Chrome
@@ -161,6 +162,7 @@ export default function Dashboard() {
   // The node whose sources are open. Separate from reasoningFocus: one is
   // what the model is looking at, the other is what the record says about it.
   const [evidenceNode, setEvidenceNode] = useState<string | null>(null);
+  const { locale, setLocale, t: tr } = useLocale();
   // DINGIR's gated surfaces. null = signed out; authAvailable is false on the
   // public demo, where the sign-in affordance is hidden too.
   const [dingirLogin, setDingirLogin] = useState<string | null>(null);
@@ -1282,8 +1284,8 @@ export default function Dashboard() {
         <div className="flex items-center gap-3 w-fit">
           <img src="/rfi-irfos-logo.png" alt="RFI-IRFOS" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(45,212,191,0.5)]" />
           <div className="flex flex-col items-start gap-0.5">
-            <h1 className="text-lg md:text-xl font-bold tracking-[0.4em] text-white font-mono">DINGIR</h1>
-            <span className="text-[8px] md:text-[9px] font-mono tracking-[0.2em] opacity-80 uppercase text-[var(--cyan-primary)]">OPEN SOURCE INTELLIGENCE</span>
+            <h1 className="text-lg md:text-xl font-bold tracking-[0.4em] text-white font-mono">{tr('header.title')}</h1>
+            <span className="text-[8px] md:text-[9px] font-mono tracking-[0.2em] opacity-80 uppercase text-[var(--cyan-primary)]">{tr('header.subtitle')}</span>
           </div>
         </div>
         <div className="flex items-center gap-3 mt-1.5 pl-[44px] min-w-0 pr-4">
@@ -1316,6 +1318,18 @@ export default function Dashboard() {
         {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
 
         <span className="text-[10px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.4.1</span>
+
+        {/* The dashboard was English-only since it existed. This is the entire
+            visible switch: everything it drives lives in LocaleProvider, so
+            adding a translated surface elsewhere never needs a second toggle. */}
+        <button
+          type="button"
+          onClick={() => setLocale(locale === 'en' ? 'de' : 'en')}
+          title={tr('lang.toggle')}
+          className="pointer-events-auto flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-bold tracking-widest hover:bg-white/10 transition-colors"
+        >
+          {locale === 'en' ? 'DE' : 'EN'}
+        </button>
 
         {/* DINGIR access, top right. Only rendered where GitHub OAuth is actually
             configured, so the public demo never offers a login it can't honour.
@@ -1350,10 +1364,10 @@ export default function Dashboard() {
       {/* ── RIGHT TOOL STRIP (desktop only — mobile uses bottom nav) ── */}
       {!isMobile && <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-[250] pointer-events-auto bg-black/40 backdrop-blur-sm p-1 rounded-full border border-white/5">
         <div className="relative group">
-          <button onClick={() => { setShowIntel(!showIntel); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showIntel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="OSINT Recon — IP lookup, network sweep, geolocation">
+          <button onClick={() => { setShowIntel(!showIntel); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showIntel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.osint.title')}>
             <Radar className={`w-4 h-4 ${showIntel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">RECON</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.osint')}</span>
           <AnimatePresence>
             {showIntel && (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
@@ -1372,10 +1386,10 @@ export default function Dashboard() {
         </div>
 
         <div className="relative group">
-          <button onClick={() => { setShowMarkets(!showMarkets); setShowIntel(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showMarkets ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="Markets — crypto prices, space weather, global indices">
+          <button onClick={() => { setShowMarkets(!showMarkets); setShowIntel(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showMarkets ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.markets.title')}>
             <BarChart3 className={`w-4 h-4 ${showMarkets ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">MARKETS</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.markets')}</span>
           <AnimatePresence>
             {showMarkets && (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
@@ -1388,10 +1402,10 @@ export default function Dashboard() {
         </div>
 
         <div className="relative group">
-          <button onClick={() => { setShowAlerts(!showAlerts); setShowIntel(false); setShowMarkets(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAlerts ? 'bg-[#FF3D3D]/20' : 'hover:bg-white/10'}`} title="Live Alerts — earthquakes, conflicts, breaking news">
+          <button onClick={() => { setShowAlerts(!showAlerts); setShowIntel(false); setShowMarkets(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAlerts ? 'bg-[#FF3D3D]/20' : 'hover:bg-white/10'}`} title={tr('tool.alerts.title')}>
             <AlertTriangle className={`w-4 h-4 ${showAlerts ? 'text-[#FF3D3D]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">ALERTS</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.alerts')}</span>
           <AnimatePresence>
             {showAlerts && (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
@@ -1404,20 +1418,20 @@ export default function Dashboard() {
         </div>
 
         <div className="relative group">
-          <button onClick={() => { setShowEntityGraph(!showEntityGraph); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showEntityGraph ? 'bg-[#D4AF37]/20' : 'hover:bg-white/10'}`} title="Entity Graph — link analysis between tracked entities">
+          <button onClick={() => { setShowEntityGraph(!showEntityGraph); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showEntityGraph ? 'bg-[#D4AF37]/20' : 'hover:bg-white/10'}`} title={tr('tool.graph.title')}>
             <Network className={`w-4 h-4 ${showEntityGraph ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">GRAPH</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.graph')}</span>
         </div>
 
         {/* Gated: the reasoning panel exposes DINGIR's trained embedding space.
             Hidden entirely when signed out, so the public demo shows no trace of it. */}
         {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => { setShowReasoningPanel(!showReasoningPanel); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningPanel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={`Reasoning Panel — DINGIR's trained graph-embedding space (signed in as ${dingirLogin})`}>
+          <button onClick={() => { setShowReasoningPanel(!showReasoningPanel); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningPanel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={`${tr('tool.reasoning.title')} (${dingirLogin})`}>
             <Brain className={`w-4 h-4 ${showReasoningPanel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">REASONING</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.reasoning')}</span>
         </div>
         )}
 
@@ -1426,10 +1440,10 @@ export default function Dashboard() {
             list and detail are meant to be read side by side. */}
         {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => setShowReasoningFeed(!showReasoningFeed)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningFeed ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Reasoning Feed — what DINGIR is currently noticing, with observations and hypotheses kept apart">
+          <button onClick={() => setShowReasoningFeed(!showReasoningFeed)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningFeed ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.feed.title')}>
             <Radio className={`w-4 h-4 ${showReasoningFeed ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">FEED</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.feed')}</span>
         </div>
         )}
 
@@ -1438,26 +1452,26 @@ export default function Dashboard() {
             thing, sitting outside the strip that holds every other one. */}
         {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => setShowAnalyst(!showAnalyst)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAnalyst ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="DINGIR — ask the world model, answers carry their provenance">
+          <button onClick={() => setShowAnalyst(!showAnalyst)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAnalyst ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.chat.title')}>
             <MessageSquare className={`w-4 h-4 ${showAnalyst ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">CHAT</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.chat')}</span>
         </div>
         )}
 
 
         <div className="relative group">
-          <button onClick={() => { setShowDirections(!showDirections); if (showDirections) { setActiveRoute(null); } setShowDesktopSearch(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDirections ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="Directions — turn-by-turn routing">
+          <button onClick={() => { setShowDirections(!showDirections); if (showDirections) { setActiveRoute(null); } setShowDesktopSearch(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDirections ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.route.title')}>
             <Route className={`w-4 h-4 ${showDirections ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">ROUTE</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.route')}</span>
         </div>
 
         <div className="relative group">
-          <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="Search — find locations, cities, coordinates">
+          <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.search.title')}>
             <Search className={`w-4 h-4 ${showDesktopSearch ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">SEARCH</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.search')}</span>
           <AnimatePresence>
             {showDesktopSearch && (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
@@ -1474,11 +1488,11 @@ export default function Dashboard() {
 
         {/* ── ARCGIS INTEL ── */}
         <div className="relative group">
-          <button onClick={() => { setShowArcGIS(!showArcGIS); setShowRemote(false); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showArcGIS ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="ArcGIS — search & import geospatial intel layers">
+          <button onClick={() => { setShowArcGIS(!showArcGIS); setShowRemote(false); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showArcGIS ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.arcgis.title')}>
             <Database className={`w-4 h-4 ${showArcGIS ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
             {arcgisLayers.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-[var(--gold-primary)] text-black text-[7px] font-mono font-bold leading-none px-0.5">{arcgisLayers.length}</span>}
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">ARCGIS</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.arcgis')}</span>
           <AnimatePresence>
             {showArcGIS && (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-[340px] flex flex-col pointer-events-none">
@@ -1512,10 +1526,10 @@ export default function Dashboard() {
 
         {/* ── WORLD REMOTE ── */}
         <div className="relative group">
-          <button onClick={() => { setShowRemote(!showRemote); setShowArcGIS(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); setShowDesktopSearch(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showRemote ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="World Remote — control nearby Bluetooth devices (TVs, speakers, AC)">
+          <button onClick={() => { setShowRemote(!showRemote); setShowArcGIS(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); setShowDesktopSearch(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showRemote ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.remote.title')}>
             <Bluetooth className={`w-4 h-4 ${showRemote ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">REMOTE</span>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.remote')}</span>
           <AnimatePresence>
             {showRemote && (
               <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
