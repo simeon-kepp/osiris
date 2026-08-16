@@ -57,9 +57,14 @@ function knnEdges(nb: Neighbor[]): [number, number][] {
 
 type Screen = { x: number; y: number; r: number; depth: number; word: string };
 
-interface Props { onClose: () => void }
+interface Props {
+  onClose: () => void;
+  /** Node id to open on, e.g. handed over from a feed entry. Falls back to a
+   *  known-populated node so the panel is never blank on first open. */
+  focusNode?: string;
+}
 
-export default function ReasoningPanel({ onClose }: Props) {
+export default function ReasoningPanel({ onClose, focusNode }: Props) {
   const [input, setInput] = useState('');
   const [node, setNode] = useState('');
   // 'network' is a different renderer, not a different projection: 2d/3d draw
@@ -313,7 +318,13 @@ export default function ReasoningPanel({ onClose }: Props) {
   // blank.
   }, [fetchNode, mode]);
 
-  useEffect(() => { fetchNode('APP:Pokemon GO'); }, [fetchNode]);
+  // Re-runs when focusNode changes, so clicking a second feed entry while the
+  // panel is already open moves it rather than being ignored.
+  useEffect(() => {
+    const target = focusNode || 'APP:Pokemon GO';
+    setInput(target);
+    fetchNode(target);
+  }, [fetchNode, focusNode]);
 
   return (
     <AnimatePresence>

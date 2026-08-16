@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, LogIn, LogOut } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, LogIn, LogOut } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -28,6 +28,8 @@ const CameraViewer = dynamic(() => import('@/components/CameraViewer'));
 const OsintPanel = dynamic(() => import('@/components/OsintPanel'));
 const EntityGraphPanel = dynamic(() => import('@/components/EntityGraphPanel'));
 const ReasoningPanel = dynamic(() => import('@/components/ReasoningPanel'));
+const ReasoningFeed = dynamic(() => import('@/components/ReasoningFeed'));
+const AiAnalyst = dynamic(() => import('@/components/AiAnalyst'));
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -113,6 +115,11 @@ export default function Dashboard() {
   const [showIntel, setShowIntel] = useState(false);
   const [showEntityGraph, setShowEntityGraph] = useState(false);
   const [showReasoningPanel, setShowReasoningPanel] = useState(false);
+  const [showReasoningFeed, setShowReasoningFeed] = useState(false);
+  // Set when a feed entry is clicked, so the reasoning panel opens on that node
+  // instead of the default. The feed says what DINGIR noticed; the panel is
+  // where you go to check whether it is right.
+  const [reasoningFocus, setReasoningFocus] = useState<string | undefined>();
   // DINGIR's gated surfaces. null = signed out; authAvailable is false on the
   // public demo, where the sign-in affordance is hidden too.
   const [dingirLogin, setDingirLogin] = useState<string | null>(null);
@@ -1263,6 +1270,18 @@ export default function Dashboard() {
         </div>
         )}
 
+        {/* Same gate as the reasoning panel: the feed is the model's own output,
+            not public data. Deliberately does NOT close the reasoning panel --
+            list and detail are meant to be read side by side. */}
+        {dingirLogin && (
+        <div className="relative group">
+          <button onClick={() => setShowReasoningFeed(!showReasoningFeed)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningFeed ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Reasoning Feed — what DINGIR is currently noticing, with observations and hypotheses kept apart">
+            <Radio className={`w-4 h-4 ${showReasoningFeed ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">FEED</span>
+        </div>
+        )}
+
 
         <div className="relative group">
           <button onClick={() => { setShowDirections(!showDirections); if (showDirections) { setActiveRoute(null); } setShowDesktopSearch(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDirections ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="Directions — turn-by-turn routing">
@@ -1623,7 +1642,30 @@ export default function Dashboard() {
 
       {/* ── DINGIR Reasoning Panel ── */}
       {showReasoningPanel && (
-        <ReasoningPanel onClose={() => setShowReasoningPanel(false)} />
+        <ReasoningPanel
+          focusNode={reasoningFocus}
+          onClose={() => { setShowReasoningPanel(false); setReasoningFocus(undefined); }}
+        />
+      )}
+
+      {/* ── DINGIR Analyst ──
+          Gated with the rest of the reasoning surface: the chat answers against
+          the graph, so exposing it publicly would expose the graph through it.
+          Brings its own floating trigger, so it needs no tool-strip button.
+          focusNode threads the reasoning panel's current node through, which is
+          what turns "what are the top threats" into a question about the thing
+          the operator is actually looking at. */}
+      {dingirLogin && (
+        <AiAnalyst data={data} graphEnabled focusNode={reasoningFocus} />
+      )}
+
+      {/* ── DINGIR Reasoning Feed ── */}
+      {showReasoningFeed && (
+        <ReasoningFeed
+          shifted={showReasoningPanel}
+          onInspect={id => { setReasoningFocus(id); setShowReasoningPanel(true); }}
+          onClose={() => setShowReasoningFeed(false)}
+        />
       )}
 
       {/* ── OVERLAYS ── */}

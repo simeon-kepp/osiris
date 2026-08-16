@@ -18,7 +18,7 @@ import {
   Check,
   Trash2,
 } from 'lucide-react';
-import type { IntelligenceContext } from '@/lib/ai-engine';
+import type { IntelligenceContext, GraphContext, GraphEdgeFact } from '@/lib/ai-engine';
 
 /* ═══════════════════════════════════════════════════════════════
    DINGIR — AI Intelligence Analyst Panel
@@ -41,11 +41,17 @@ interface DashboardData {
 interface EarthquakeItem {
   id: string;
   magnitude: number;
-  location: string;
+  /** The dashboard's USGS transform emits `place`; `location` was the shape
+   *  this panel was originally written against. Both are accepted -- reading
+   *  only `location` put the literal string "undefined" into the model's
+   *  context for every quake, which is worse than omitting the field. */
+  location?: string;
+  place?: string;
   lat: number;
   lng: number;
   depth: number;
-  time: string;
+  /** USGS ships epoch milliseconds; other sources ship an ISO string. */
+  time: string | number;
   tsunami: boolean;
   felt: number | null;
   alert: string | null;
@@ -101,6 +107,12 @@ interface ChatMessage {
 
 interface AiAnalystProps {
   data: DashboardData;
+  /** True behind the DINGIR login. When set, every question is answered against
+   *  the reasoning graph as well as the live feeds. Off on the public demo,
+   *  where the graph is not exposed at all. */
+  graphEnabled?: boolean;
+  /** The node the operator currently has open, if any. */
+  focusNode?: string;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -115,11 +127,11 @@ function buildContext(data: DashboardData): IntelligenceContext {
   const earthquakes = (data.earthquakes || []).slice(0, 20).map((eq) => ({
     id: eq.id || generateId(),
     magnitude: eq.magnitude,
-    location: eq.location,
+    location: eq.location || eq.place || 'unknown location',
     latitude: eq.lat,
     longitude: eq.lng,
     depth: eq.depth,
-    timestamp: eq.time,
+    timestamp: typeof eq.time === 'number' ? new Date(eq.time).toISOString() : eq.time,
     tsunami: eq.tsunami ?? false,
     felt: eq.felt ?? null,
     alert: eq.alert ?? null,
@@ -163,6 +175,102 @@ function buildContext(data: DashboardData): IntelligenceContext {
   };
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Graph context — DINGIR's own reasoning, fetched at send time
+
+   Deliberately fetched per question rather than subscribed to. The feed's SSE
+   poller is shared server-side, so ?once=1 reads the same snapshot every open
+   feed panel is reading; a second subscription here would add a lifecycle to
+   manage for data that only matters at the moment a question is asked.
+
+   The provenance class travels with every item. That is the whole point of
+   handing the graph to a language model at all: without it the model has no way
+   to tell an audit finding from its own guess, and it will write both in the
+   same confident sentence.
+   ───────────────────────────────────────────────────────────── */
+
+type FeedSnapshot = {
+  items: {
+    kind: string;
+    provenance: string;
+    score: number;
+    title: string;
+    nodes: string[];
+    relation?: string;
+  }[];
+  graph: { nodes: number; edges: number };
+  /** Held-out scores of the checkpoint that produced the predictions above,
+   *  shipped alongside them rather than restated here. See bi_api's
+   *  route_reasoning_feed for why this does not live in the client. */
+  model?: { test_auc?: number; relation_mrr?: number; best_epoch?: number; trained_at?: string };
+};
+
+async function fetchGraphContext(focusNode?: string): Promise<GraphContext | undefined> {
+  try {
+    const [snapRes, mycRes] = await Promise.all([
+      fetch('/api/reasoning/feed?once=1'),
+      focusNode
+        ? fetch(`/api/reasoning/mycelium?node=${encodeURIComponent(focusNode)}&k=25`)
+        : Promise.resolve(null),
+    ]);
+    if (!snapRes.ok) return undefined;
+    const snap = (await snapRes.json()) as FeedSnapshot;
+
+    const predictions: GraphEdgeFact[] = snap.items
+      .filter(i => i.kind === 'PREDICTION' && i.nodes.length >= 2)
+      .map(i => ({
+        subject: i.nodes[0],
+        relation: i.relation || 'RELATED_TO',
+        object: i.nodes[1],
+        provenance: 'PREDICTED',
+        score: i.score,
+      }));
+
+    const anomalies = snap.items
+      .filter(i => i.kind === 'ANOMALY')
+      .map(i => ({ node: i.nodes[0] || i.title, type: '', degree: 0, score: i.score }));
+
+    let neighbours: GraphEdgeFact[] = [];
+    let focusType: string | undefined;
+    if (mycRes && mycRes.ok) {
+      const myc = await mycRes.json();
+      focusType = myc?.type;
+      // Mycelium returns nearest neighbours in the embedding space. Those are
+      // DERIVED -- a cosine distance is computed, not stated by any source --
+      // and are labelled as such rather than being passed off as edges.
+      neighbours = (myc?.neighbors ?? myc?.neighbours ?? [])
+        .slice(0, 25)
+        .map((n: { word?: string; id?: string; similarity?: number }) => ({
+          subject: focusNode as string,
+          relation: 'NEAR_IN_EMBEDDING_SPACE',
+          object: n.word || n.id || '',
+          provenance: 'DERIVED',
+          score: n.similarity,
+        }))
+        .filter((e: GraphEdgeFact) => e.object);
+    }
+
+    return {
+      focus: focusNode,
+      focusType,
+      neighbours,
+      anomalies,
+      predictions,
+      totals: snap.graph,
+      // Read from the checkpoint via the feed, never hardcoded: the analyst
+      // uses this to say what a PREDICTED edge is actually worth, and a stale
+      // copy of the number would be a confident claim about a model that no
+      // longer exists. Undefined when the checkpoint predates metric
+      // persistence, in which case the analyst simply says nothing about it.
+      modelTestAuc: snap.model?.test_auc,
+    };
+  } catch {
+    // No graph context is a normal condition (signed out, API down). The chat
+    // still answers from the live feeds and simply has less to work with.
+    return undefined;
+  }
+}
+
 /** Render markdown-lite: bold, headers, bullet points */
 function renderMarkdown(text: string): string {
   // Basic HTML escape to prevent XSS
@@ -187,7 +295,7 @@ function renderMarkdown(text: string): string {
    Component
    ───────────────────────────────────────────────────────────── */
 
-export default function AiAnalyst({ data }: AiAnalystProps) {
+export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -245,6 +353,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
 
     try {
       const context = buildContext(data);
+      if (graphEnabled) context.graph = await fetchGraphContext(focusNode);
       const res = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: getHeaders(),
@@ -280,7 +389,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [inputText, isLoading, data, getHeaders]);
+  }, [inputText, isLoading, data, getHeaders, graphEnabled, focusNode]);
 
   const handleBriefing = useCallback(async () => {
     if (isLoading) return;
@@ -296,6 +405,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
 
     try {
       const context = buildContext(data);
+      if (graphEnabled) context.graph = await fetchGraphContext(focusNode);
       const res = await fetch('/api/ai/briefing', {
         method: 'POST',
         headers: getHeaders(),
@@ -331,7 +441,7 @@ export default function AiAnalyst({ data }: AiAnalystProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, data, getHeaders]);
+  }, [isLoading, data, getHeaders, graphEnabled, focusNode]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
