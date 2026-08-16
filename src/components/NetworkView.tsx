@@ -58,6 +58,16 @@ const TYPE_COLOR: Record<string, [number, number, number]> = {
   // graph that is a primary document -- everything else is an extraction from
   // one, and the eye should be able to find the sources.
   AUDIT_REPORT:       [1.00, 0.98, 0.88],
+  // hazards, with their causes, their scale and their moment
+  VOLCANO:            [1.00, 0.30, 0.05],  // deep orange, the source
+  ERUPTION:           [1.00, 0.62, 0.25],  // lighter, the events from it
+  FLOOD:              [0.25, 0.55, 0.95],  // water blue
+  FLOOD_CAUSE:        [0.10, 0.80, 0.95],  // brighter cyan, the cause hubs
+  DISASTER_TYPE:      [1.00, 0.40, 0.30],  // salmon
+  ERUPTION_SCALE:     [0.95, 0.85, 0.35],  // yellow, an ordinal class
+  // Time. Grey on purpose and deliberately quiet: a period is scaffolding that
+  // makes "what else happened then" answerable, not a thing that happened.
+  PERIOD:             [0.62, 0.62, 0.70],
 };
 
 // A type with no entry renders grey, and grey is where the whole graph went
