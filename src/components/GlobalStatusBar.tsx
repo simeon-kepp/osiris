@@ -118,14 +118,14 @@ export default function GlobalStatusBar() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 3, duration: 0.6 }}
-      className="hidden md:block absolute bottom-0 left-0 right-0 z-[210] pointer-events-none"
+      className="hidden md:block absolute top-0 left-0 right-0 z-[210] pointer-events-none"
     >
-      <div className="h-[28px] overflow-hidden bg-[#0a0a0f]/95 border-t border-white/[0.06] flex items-center text-[9px] font-mono tracking-wider backdrop-blur-xl relative">
+      <div className="h-[28px] overflow-hidden bg-[#0a0a0f]/95 border-b border-white/[0.06] flex items-center text-[9px] font-mono tracking-wider backdrop-blur-xl relative">
         {/* Animated scan line */}
-        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[var(--cyan-primary)]/30 to-transparent" style={{ animation: 'hud-scanline 4s linear infinite' }} />
+        <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[var(--cyan-primary)]/30 to-transparent" style={{ animation: 'hud-scanline 4s linear infinite' }} />
         
         {/* ── CENTER: Scrolling ticker ── */}
         <div className="flex-1 overflow-hidden relative" style={{ maskImage: 'linear-gradient(to right, transparent, black 3%, black 97%, transparent)' }}>
@@ -176,7 +176,7 @@ export default function GlobalStatusBar() {
 
       {/* Earthquake hover tooltip */}
       {hoveredQuake && (
-        <div className="absolute bottom-[34px] left-1/2 -translate-x-1/2 z-[300] pointer-events-none">
+        <div className="absolute top-[34px] left-1/2 -translate-x-1/2 z-[300] pointer-events-none">
           <div className="bg-black/90 backdrop-blur-xl border border-white/[0.08] rounded-lg px-4 py-3 text-[10px] font-mono whitespace-nowrap shadow-2xl">
             <div className="flex items-center gap-2 mb-2">
               <span className="w-2 h-2 rounded-full bg-[#FF5722] shrink-0" />

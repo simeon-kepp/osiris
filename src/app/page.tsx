@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, LogIn, LogOut } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, MessageSquare, LogIn, LogOut } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -120,6 +120,7 @@ export default function Dashboard() {
   // instead of the default. The feed says what DINGIR noticed; the panel is
   // where you go to check whether it is right.
   const [reasoningFocus, setReasoningFocus] = useState<string | undefined>();
+  const [showAnalyst, setShowAnalyst] = useState(false);
   // DINGIR's gated surfaces. null = signed out; authAvailable is false on the
   // public demo, where the sign-in affordance is hidden too.
   const [dingirLogin, setDingirLogin] = useState<string | null>(null);
@@ -981,7 +982,7 @@ export default function Dashboard() {
 
       {/* ── DIRECTIONS — opens beside the right-hand tool rail ── */}
       <div
-        className="absolute top-3 z-[400] w-[min(92vw,372px)] pointer-events-auto"
+        className="absolute top-3 md:top-[34px] z-[400] w-[min(92vw,372px)] pointer-events-auto"
         style={isMobile ? { left: '50%', transform: 'translateX(-50%)' } : { right: '56px' }}
       >
         {navSession ? (
@@ -1043,7 +1044,7 @@ export default function Dashboard() {
       {watchedFlights.length > 0 && (
         <motion.div
           initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
-          className="absolute top-3 z-[380] w-[min(92vw,290px)] pointer-events-auto
+          className="absolute top-3 md:top-[34px] z-[380] w-[min(92vw,290px)] pointer-events-auto
                      max-h-[calc(100vh-180px)] overflow-y-auto styled-scrollbar"
           style={{ left: isMobile ? '12px' : '120px' }}
         >
@@ -1133,7 +1134,7 @@ export default function Dashboard() {
       </motion.div>
 
       {/* ── HEADER ── */}
-      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, delay: 2.5 }} className={`absolute top-4 z-[200] pointer-events-none flex flex-col`} style={{ left: isMobile ? '24px' : '64px', right: '24px' }}>
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, delay: 2.5 }} className={`absolute top-4 md:top-[38px] z-[200] pointer-events-none flex flex-col`} style={{ left: isMobile ? '24px' : '64px', right: '24px' }}>
         <div className="flex items-center gap-3 w-fit">
           <img src="/rfi-irfos-logo.png" alt="RFI-IRFOS" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(45,212,191,0.5)]" />
           <div className="flex flex-col items-start gap-0.5">
@@ -1150,7 +1151,7 @@ export default function Dashboard() {
 
 
       {/* ── TOP-RIGHT STATUS (desktop) ── */}
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 3 }} className="status-bar-desktop absolute top-4 right-6 z-[200] pointer-events-none flex items-center gap-3 text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 3 }} className="status-bar-desktop absolute top-4 md:top-[40px] right-6 z-[200] pointer-events-none flex items-center gap-3 text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
 
         <span className="hidden lg:inline-flex items-center gap-1.5">
           <ZuluClock />
@@ -1279,6 +1280,18 @@ export default function Dashboard() {
             <Radio className={`w-4 h-4 ${showReasoningFeed ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">FEED</span>
+        </div>
+        )}
+
+        {/* The analyst used to carry its own floating button in the bottom-right
+            corner: a second, differently-shaped control for the same class of
+            thing, sitting outside the strip that holds every other one. */}
+        {dingirLogin && (
+        <div className="relative group">
+          <button onClick={() => setShowAnalyst(!showAnalyst)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAnalyst ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title="DINGIR — ask the world model, answers carry their provenance">
+            <MessageSquare className={`w-4 h-4 ${showAnalyst ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">CHAT</span>
         </div>
         )}
 
@@ -1656,7 +1669,13 @@ export default function Dashboard() {
           what turns "what are the top threats" into a question about the thing
           the operator is actually looking at. */}
       {dingirLogin && (
-        <AiAnalyst data={data} graphEnabled focusNode={reasoningFocus} />
+        <AiAnalyst
+          data={data}
+          graphEnabled
+          focusNode={reasoningFocus}
+          open={showAnalyst}
+          onClose={() => setShowAnalyst(false)}
+        />
       )}
 
       {/* ── DINGIR Reasoning Feed ── */}

@@ -1,12 +1,17 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  OSIRIS — AI Intelligence Engine
- *  Gemini 2.0 Flash integration for real-time intelligence analysis
- *  Designed to correlate multi-domain feeds into actionable briefings
+ *  DINGIR — language head
+ *
+ *  Provider-agnostic. The seam is "system prompt + user prompt in,
+ *  text out" and nothing above it knows which model answered, so
+ *  putting albert. behind it later is a config change rather than a
+ *  rewrite. Putting the seam at the client-object level instead would
+ *  have leaked one provider's request shape into every caller.
+ *
+ *  Order of preference: NVIDIA NIM (free tier, OpenAI-compatible),
+ *  then Gemini. A key pasted into the settings panel wins over both.
  * ═══════════════════════════════════════════════════════════════
  */
-
-import { GoogleGenerativeAI, type GenerativeModel } from '@google/generative-ai';
 
 /* ─────────────────────────────────────────────────────────────
    Data Interfaces — Zero `any` types
@@ -101,7 +106,7 @@ export interface IntelligenceContext {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   System Prompt — Palantir-grade analyst persona
+   System prompt — bound to the same provenance discipline as the graph
    ───────────────────────────────────────────────────────────── */
 
 // REWRITTEN 2026-08-16. The previous version instructed the model to write as
@@ -137,65 +142,39 @@ The point is early warning that a person can check. A chain like "sustained heat
 ## WHAT YOU ARE NOT
 You are not a black box producing verdicts. If a reader cannot trace your conclusion back to specific items in the context, you have written the wrong answer.`;
 
-const BRIEFING_PROMPT = `Generate a comprehensive OSIRIS Daily Intelligence Briefing based on the current operational data. Structure it as follows:
+// The briefing prompt was the last place the old persona survived: it asked for
+// an "OSIRIS Daily Intelligence Briefing" with a DTG line and roman-numeral
+// sections, which is a house style that makes every section sound equally
+// settled. Rewritten to ask for the same content with the provenance carried.
+const BRIEFING_PROMPT = `Write the current DINGIR situation briefing from the operational data below.
 
-## OSIRIS INTELLIGENCE BRIEFING
-**Classification:** OPEN SOURCE INTELLIGENCE (OSINT)
-**DTG:** [Current timestamp]
+Structure it as follows, and drop any section the data cannot fill rather than padding it:
 
-### I. EXECUTIVE SUMMARY
-2-3 sentence overview of the current global threat landscape based on available data.
+**WHAT CHANGED**
+The few developments that actually matter right now, most consequential first. For each, say plainly what is known and how it is known.
 
-### II. PRIORITY INTELLIGENCE REQUIREMENTS (PIRs)
-Identify the top 3-5 most significant developments from the data feeds, ranked by assessed impact.
+**HAZARD PICTURE**
+Seismic and disaster data: clustering, corridor activity, tsunami risk. Say when a pattern is a pattern and when it is the ordinary background rate.
 
-### III. SEISMIC & NATURAL HAZARD ASSESSMENT
-Analyze earthquake data for patterns — clustering, tectonic corridor activity, tsunami risk.
+**GEOPOLITICAL PICTURE**
+What the event and news feeds support. Escalation and de-escalation both count.
 
-### IV. GEOPOLITICAL & CONFLICT INTELLIGENCE
-Synthesize news feeds for conflict escalation patterns, diplomatic shifts, or emerging crises.
+**WHERE THINGS INTERSECT**
+Places where more than one thread touches the same region or the same actor. State explicitly whether anything connects them beyond proximity — usually nothing does, and saying so is the useful part.
 
-### V. CYBER THREAT LANDSCAPE
-Assess active CVEs and cyber alerts for coordinated campaign indicators or critical infrastructure risk.
+**WHAT THE GRAPH SUGGESTS BUT CANNOT SHOW**
+Predicted relations only. Every line here is a hypothesis with no evidence behind it. Say what would have to be observed to confirm each one.
 
-### VI. COMPOUND RISK SCENARIOS
-Identify where multiple threat vectors intersect (e.g., earthquake near a conflict zone, cyber attack during political instability).
+**WHAT TO WATCH**
+Next 24 hours, next 72 hours. What would change the picture.
 
-### VII. FORECAST & WATCHLIST
-- **Next 24 Hours**: Most likely developments
-- **Next 72 Hours**: Emerging situations to monitor
-- **Strategic Horizon**: Longer-term trend assessment
+**CONFIDENCE AND GAPS**
+Overall confidence, what it rests on, and the specific things you could not see.
 
-### VIII. ASSESSMENT CONFIDENCE
-State overall confidence level and key analytical gaps.
-
-Analyze the provided data thoroughly. Be specific — reference actual events, magnitudes, locations, and CVE IDs from the context.`;
+Reference real entities, magnitudes, locations and identifiers from the data. Do not invent any.`;
 
 /* ─────────────────────────────────────────────────────────────
-   Client Factory
-   ───────────────────────────────────────────────────────────── */
-
-export function createGeminiClient(apiKey: string): GoogleGenerativeAI {
-  return new GoogleGenerativeAI(apiKey);
-}
-
-/* ─────────────────────────────────────────────────────────────
-   API Key Rotation — Round-robin through available keys
-   ───────────────────────────────────────────────────────────── */
-
-let _keyIndex = 0;
-
-export function rotateApiKey(keys: string[]): string {
-  if (keys.length === 0) {
-    throw new Error('No API keys available');
-  }
-  const key = keys[_keyIndex % keys.length];
-  _keyIndex = (_keyIndex + 1) % keys.length;
-  return key;
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Context Serializer — Compact representation for token efficiency
+   Context serializer — compact, and provenance-carrying
    ───────────────────────────────────────────────────────────── */
 
 function serializeContext(context: IntelligenceContext): string {
@@ -273,10 +252,21 @@ function serializeContext(context: IntelligenceContext): string {
           `No evidence exists for any line in this block. Do not state any of ` +
           `them as fact, and do not let one carry a conclusion on its own.`
       );
+      // The raw DistMult score is unbounded and is NOT a probability. Shipping
+      // it bare invited exactly the misreading it looks like: an analyst wrote
+      // "model score 6.744" next to a hypothesis, where 6.744 reads as high
+      // confidence and on its own means nothing. It is only ever a ranking key
+      // within this block, and it is labelled as such.
       for (const p of g.predictions.slice(0, 20)) {
-        const s = p.score !== undefined ? ` (model score ${p.score.toFixed(3)})` : '';
+        const s = p.score !== undefined ? ` (rank score ${p.score.toFixed(2)})` : '';
         sections.push(`  [PREDICTED] ${p.subject} --${p.relation}--> ${p.object}${s}`);
       }
+      sections.push(
+        `  NOTE: "rank score" orders these lines against each other and nothing ` +
+          `else. It is not a probability and not a confidence -- a higher score ` +
+          `does not mean a claim is more likely true, only that the model ranked ` +
+          `it above the line below it. Do not quote it as a confidence figure.`
+      );
     }
 
     if (g.anomalies.length > 0) {
@@ -296,57 +286,175 @@ function serializeContext(context: IntelligenceContext): string {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Intelligence Analysis
+   Provider seam
+
+   One function shape: (system, user) -> text. Two implementations today,
+   a third (albert.) later. `resolveProvider` decides which, so no caller
+   has to.
+   ───────────────────────────────────────────────────────────── */
+
+export interface LlmProvider {
+  /** Shown in the UI so the operator always knows who answered. */
+  label: string;
+  model: string;
+  complete(system: string, user: string): Promise<string>;
+}
+
+const NIM_BASE = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+// PROBED, NOT ASSUMED. /v1/models lists 102 handles but listing is not
+// entitlement: nvidia/llama-3.1-nemotron-70b-instruct, mistralai/mistral-large-2
+// and mistralai/mistral-7b-instruct-v0.3 are all in the catalogue and all
+// return 404 for this account. meta/llama-3.1-70b-instruct answers in ~0.7s.
+// Override with NVIDIA_MODEL; a wrong handle fails loudly with a 404 naming
+// the provider rather than silently degrading.
+const NIM_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+
+/** OpenAI-compatible chat completions. Covers NVIDIA NIM and anything speaking
+ *  the same protocol, which is most self-hosted inference today. */
+function openAiCompatible(apiKey: string, base: string, model: string, label: string): LlmProvider {
+  return {
+    label,
+    model,
+    async complete(system, user) {
+      const res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          temperature: 0.2,     // an analyst, not a writer
+          max_tokens: 2048,
+          stream: false,
+        }),
+        // Generous: a 70B on a free tier is not fast, and failing at 30s would
+        // look like a broken integration rather than a slow one.
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`${label} ${res.status}: ${detail.slice(0, 300)}`);
+      }
+      const body = await res.json();
+      const text = body?.choices?.[0]?.message?.content;
+      if (typeof text !== 'string' || !text.trim()) {
+        throw new Error(`${label} returned no content`);
+      }
+      return text;
+    },
+  };
+}
+
+function gemini(apiKey: string): LlmProvider {
+  return {
+    label: 'Gemini',
+    model: GEMINI_MODEL,
+    async complete(system, user) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: 'user', parts: [{ text: user }] }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+          }),
+          signal: AbortSignal.timeout(120_000),
+        }
+      );
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`Gemini ${res.status}: ${detail.slice(0, 300)}`);
+      }
+      const body = await res.json();
+      const text = body?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('');
+      if (!text || !text.trim()) throw new Error('Gemini returned no content');
+      return text;
+    },
+  };
+}
+
+/** Round-robin across however many keys of one kind are configured. */
+let _keyIndex = 0;
+export function rotateApiKey(keys: string[]): string {
+  if (keys.length === 0) throw new Error('No API keys available');
+  const key = keys[_keyIndex % keys.length];
+  _keyIndex = (_keyIndex + 1) % keys.length;
+  return key;
+}
+
+function envKeys(prefix: string): string[] {
+  const out: string[] = [];
+  const single = process.env[prefix];
+  if (single && single.trim()) out.push(single.trim());
+  for (let i = 1; i <= 8; i++) {
+    const k = process.env[`${prefix}_${i}`];
+    if (k && k.trim()) out.push(k.trim());
+  }
+  return out;
+}
+
+/**
+ * Which model answers, and why that one.
+ *
+ * `userKey` is whatever was pasted into the settings panel. It is routed by
+ * shape rather than by a second dropdown the operator would have to keep in
+ * sync with the key: an `nvapi-` key is a NIM key, anything else is treated as
+ * Gemini. Getting this wrong is loud (401 naming the provider), not silent.
+ */
+export function resolveProvider(userKey?: string): LlmProvider | null {
+  const k = userKey?.trim();
+  if (k) {
+    return k.startsWith('nvapi-')
+      ? openAiCompatible(k, NIM_BASE, NIM_MODEL, 'NVIDIA NIM')
+      : gemini(k);
+  }
+  const nim = envKeys('NVIDIA_API_KEY');
+  if (nim.length) return openAiCompatible(rotateApiKey(nim), NIM_BASE, NIM_MODEL, 'NVIDIA NIM');
+  const gem = envKeys('GEMINI_API_KEY');
+  if (gem.length) return gemini(rotateApiKey(gem));
+  return null;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   The two things the analyst is asked to do
    ───────────────────────────────────────────────────────────── */
 
 export async function analyzeIntelligence(
-  client: GoogleGenerativeAI,
+  provider: LlmProvider,
   context: IntelligenceContext,
   userQuery: string
 ): Promise<string> {
-  const model: GenerativeModel = client.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction: SYSTEM_PROMPT,
-  });
-
-  const contextData = serializeContext(context);
-
-  const prompt = `## CURRENT OPERATIONAL DATA
-${contextData}
+  return provider.complete(
+    SYSTEM_PROMPT,
+    `## CURRENT OPERATIONAL DATA
+${serializeContext(context)}
 
 ## ANALYST QUERY
 ${userQuery}
 
-Provide your intelligence assessment based on the operational data above and the analyst's query.`;
-
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  return response.text();
+Answer the query against the data above. Carry the provenance class of every fact you use.`
+  );
 }
 
-/* ─────────────────────────────────────────────────────────────
-   Daily Briefing Generation
-   ───────────────────────────────────────────────────────────── */
-
 export async function generateBriefing(
-  client: GoogleGenerativeAI,
+  provider: LlmProvider,
   context: IntelligenceContext
 ): Promise<string> {
-  const model: GenerativeModel = client.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction: SYSTEM_PROMPT,
-  });
-
-  const contextData = serializeContext(context);
-
-  const prompt = `${BRIEFING_PROMPT}
+  return provider.complete(
+    SYSTEM_PROMPT,
+    `${BRIEFING_PROMPT}
 
 ## CURRENT OPERATIONAL DATA
-${contextData}
+${serializeContext(context)}
 
-Generate the briefing now.`;
-
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  return response.text();
+Write the briefing now.`
+  );
 }

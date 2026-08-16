@@ -107,6 +107,12 @@ interface ChatMessage {
 
 interface AiAnalystProps {
   data: DashboardData;
+  /** Owned by the tool strip. The panel used to carry its own floating brain
+   *  button in the bottom-right corner, which put a second, differently-shaped
+   *  control for the same class of thing outside the strip that holds all the
+   *  others. */
+  open: boolean;
+  onClose: () => void;
   /** True behind the DINGIR login. When set, every question is answered against
    *  the reasoning graph as well as the live feeds. Off on the public demo,
    *  where the graph is not exposed at all. */
@@ -295,14 +301,20 @@ function renderMarkdown(text: string): string {
    Component
    ───────────────────────────────────────────────────────────── */
 
-export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose }: AiAnalystProps) {
+  const isOpen = open;
+  const setIsOpen = (v: boolean) => { if (!v) onClose(); };
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keySaved, setKeySaved] = useState(false);
+  // Filled from the response, never guessed. The header used to read
+  // "GEMINI 2.0 FLASH • ONLINE" as static text -- it said Gemini while the
+  // request was failing for want of a Gemini key, which is the one thing a
+  // status line must never do.
+  const [providerLabel, setProviderLabel] = useState('READY');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -369,6 +381,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
 
       const responseBody = json as { analysis: string; model: string; timestamp: string };
 
+      if (responseBody.model) setProviderLabel(responseBody.model.toUpperCase());
       const analystMsg: ChatMessage = {
         id: generateId(),
         role: 'analyst',
@@ -419,7 +432,8 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
         throw new Error(errorBody.error || `HTTP ${res.status}`);
       }
 
-      const responseBody = json as { briefing: string; generatedAt: string };
+      const responseBody = json as { briefing: string; generatedAt: string; model?: string };
+      if (responseBody.model) setProviderLabel(responseBody.model.toUpperCase());
 
       const analystMsg: ChatMessage = {
         id: generateId(),
@@ -472,42 +486,9 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
     setMessages([]);
   }, []);
 
-  /* ── Floating Trigger Button ── */
-  const triggerButton = (
-    <motion.button
-      initial={{ scale: 0, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ delay: 3, type: 'spring', stiffness: 200, damping: 15 }}
-      whileHover={{ scale: 1.1 }}
-      whileTap={{ scale: 0.95 }}
-      onClick={() => setIsOpen(true)}
-      className="fixed bottom-[90px] right-5 md:bottom-8 md:right-8 z-[500] w-14 h-14 rounded-full flex items-center justify-center cursor-pointer border-0"
-      style={{
-        background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.2) 0%, rgba(212, 175, 55, 0.08) 100%)',
-        border: '1px solid rgba(212, 175, 55, 0.4)',
-        boxShadow:
-          '0 0 30px rgba(212, 175, 55, 0.2), 0 0 60px rgba(212, 175, 55, 0.1), 0 4px 20px rgba(0, 0, 0, 0.5)',
-      }}
-      aria-label="Open AI Intelligence Analyst"
-    >
-      <Brain className="w-6 h-6 text-[var(--gold-primary)]" />
-      {/* Pulse rings */}
-      <div className="absolute inset-0 rounded-full animate-glow-pulse" />
-      <motion.div
-        className="absolute inset-[-4px] rounded-full border border-[var(--gold-primary)]"
-        animate={{ opacity: [0.3, 0.6, 0.3], scale: [1, 1.1, 1] }}
-        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-        style={{ opacity: 0.3 }}
-      />
-    </motion.button>
-  );
-
   /* ── Panel ── */
   return (
     <>
-      {/* Trigger — only show when panel is closed */}
-      <AnimatePresence>{!isOpen && triggerButton}</AnimatePresence>
-
       {/* Panel */}
       <AnimatePresence>
         {isOpen && (
@@ -558,9 +539,9 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                     <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[var(--alert-green)] animate-osiris-pulse" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="hud-text text-[11px] text-[var(--text-heading)]">DINGIR ANALYST</span>
-                    <span className="text-[7px] font-mono tracking-[0.2em] text-[var(--text-muted)]">
-                      GEMINI 2.0 FLASH • ONLINE
+                    <span className="hud-text text-[13px] text-[var(--text-heading)]">DINGIR</span>
+                    <span className="text-[9px] font-mono tracking-[0.15em] text-[var(--text-muted)]">
+                      {providerLabel}
                     </span>
                   </div>
                 </div>
@@ -615,7 +596,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                     >
                       <div className="flex items-center gap-2">
                         <Key className="w-3 h-3 text-[var(--gold-dim)]" />
-                        <span className="hud-label" style={{ fontSize: '8px' }}>
+                        <span className="hud-label" style={{ fontSize: '10px' }}>
                           GEMINI API KEY (OPTIONAL)
                         </span>
                       </div>
@@ -656,7 +637,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                           </>
                         )}
                       </div>
-                      <p className="text-[8px] font-mono text-[var(--text-muted)] leading-relaxed">
+                      <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
                         Your key is stored locally and sent only to the DINGIR server. Get a free key at{' '}
                         <a
                           href="https://aistudio.google.com/apikey"
@@ -706,14 +687,14 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                       <h3 className="hud-text text-[12px] text-[var(--text-heading)]">
                         INTELLIGENCE ANALYST READY
                       </h3>
-                      <p className="text-[10px] font-mono text-[var(--text-muted)] leading-relaxed max-w-[280px]">
+                      <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed max-w-[300px]">
                         I correlate live seismic, OSINT, threat, and cyber data to deliver actionable intelligence assessments.
                       </p>
                     </div>
 
                     {/* Quick prompts */}
                     <div className="w-full space-y-1.5">
-                      <span className="hud-label block text-center mb-2" style={{ fontSize: '7px' }}>
+                      <span className="hud-label block text-center mb-2" style={{ fontSize: '9px' }}>
                         SUGGESTED QUERIES
                       </span>
                       {[
@@ -727,7 +708,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                             setInputText(prompt);
                             setTimeout(() => inputRef.current?.focus(), 50);
                           }}
-                          className="w-full text-left px-3 py-2 rounded-lg text-[10px] font-mono text-[var(--text-secondary)] transition-all hover:text-[var(--text-primary)] hover:bg-[var(--hover-accent)]"
+                          className="w-full text-left px-3 py-2.5 rounded-lg text-[12px] text-[var(--text-secondary)] transition-all hover:text-[var(--text-primary)] hover:bg-[var(--hover-accent)]"
                           style={{
                             border: '1px solid rgba(212, 175, 55, 0.08)',
                           }}
@@ -780,7 +761,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                           <Bot className="w-3 h-3 text-[var(--gold-primary)]" />
                         )}
                         <span
-                          className="text-[8px] font-mono tracking-[0.15em] uppercase"
+                          className="text-[9px] font-mono tracking-[0.15em] uppercase"
                           style={{
                             color: msg.role === 'user'
                               ? 'var(--cyan-primary)'
@@ -791,7 +772,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                         >
                           {msg.role === 'user' ? 'OPERATOR' : 'DINGIR ANALYST'}
                         </span>
-                        <span className="text-[7px] font-mono text-[var(--text-muted)] ml-auto">
+                        <span className="text-[9px] font-mono text-[var(--text-muted)] ml-auto">
                           {new Date(msg.timestamp).toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit',
@@ -802,11 +783,11 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                       {/* Message content */}
                       {msg.role === 'analyst' && !msg.isError ? (
                         <div
-                          className="text-[11px] font-mono text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words"
+                          className="text-[13px] text-[var(--text-primary)] leading-[1.6] whitespace-pre-wrap break-words"
                           dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
                         />
                       ) : (
-                        <p className="text-[11px] font-mono text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words">
+                        <p className="text-[13px] text-[var(--text-primary)] leading-[1.6] whitespace-pre-wrap break-words">
                           {msg.content}
                         </p>
                       )}
@@ -830,7 +811,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                     >
                       <Loader2 className="w-3.5 h-3.5 text-[var(--gold-primary)] animate-spin" />
                       <div className="flex items-center gap-1">
-                        <span className="text-[9px] font-mono tracking-[0.15em] text-[var(--gold-primary)] uppercase">
+                        <span className="text-[10px] font-mono tracking-[0.15em] text-[var(--gold-primary)] uppercase">
                           Analyzing intelligence
                         </span>
                         <motion.span
@@ -872,7 +853,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                     GENERATE BRIEFING
                   </button>
                   <div className="flex-1" />
-                  <span className="flex items-center text-[7px] font-mono text-[var(--text-muted)] tracking-wider">
+                  <span className="flex items-center text-[9px] font-mono text-[var(--text-muted)] tracking-wider">
                     <ChevronDown className="w-2.5 h-2.5 mr-0.5" />
                     SHIFT+ENTER FOR NEWLINE
                   </span>
@@ -894,7 +875,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
                       onKeyDown={handleKeyDown}
                       placeholder="Query the intelligence analyst..."
                       rows={1}
-                      className="w-full bg-transparent px-3 py-2.5 text-[11px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none"
+                      className="w-full bg-transparent px-3 py-2.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none"
                       style={{ maxHeight: '120px', minHeight: '36px' }}
                       disabled={isLoading}
                       onInput={(e) => {
@@ -932,10 +913,10 @@ export default function AiAnalyst({ data, graphEnabled, focusNode }: AiAnalystPr
 
                 {/* Footer */}
                 <div className="flex items-center justify-between mt-1.5 px-1">
-                  <span className="text-[7px] font-mono text-[var(--text-muted)] tracking-wider">
+                  <span className="text-[9px] font-mono text-[var(--text-muted)] tracking-wider">
                     {keySaved ? 'CUSTOM KEY' : 'SERVER KEY'} • {messages.filter((m) => m.role === 'user').length} QUERIES
                   </span>
-                  <span className="text-[7px] font-mono text-[var(--text-muted)] tracking-wider">
+                  <span className="text-[9px] font-mono text-[var(--text-muted)] tracking-wider">
                     FEEDS: {(data.earthquakes?.length || 0) + (data.news?.length || 0) + (data.gdelt?.length || 0)} ITEMS
                   </span>
                 </div>

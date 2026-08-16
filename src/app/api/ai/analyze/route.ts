@@ -1,15 +1,16 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  OSIRIS — AI Intelligence Analysis Endpoint
+ *  DINGIR — analysis endpoint
  *  POST /api/ai/analyze
- *  Rate-limited, multi-key Gemini integration
+ *
+ *  Provider-agnostic: resolveProvider picks NVIDIA NIM, Gemini, or a
+ *  key the operator pasted in, and this route never learns which.
  * ═══════════════════════════════════════════════════════════════
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  createGeminiClient,
-  rotateApiKey,
+  resolveProvider,
   analyzeIntelligence,
   type IntelligenceContext,
 } from '@/lib/ai-engine';
@@ -55,21 +56,6 @@ setInterval(() => {
     }
   }
 }, 120_000);
-
-/* ─────────────────────────────────────────────────────────────
-   Collect API keys from environment
-   ───────────────────────────────────────────────────────────── */
-
-function getEnvApiKeys(): string[] {
-  const keys: string[] = [];
-  for (let i = 1; i <= 8; i++) {
-    const key = process.env[`GEMINI_API_KEY_${i}`];
-    if (key && key.trim().length > 0) {
-      keys.push(key.trim());
-    }
-  }
-  return keys;
-}
 
 /* ─────────────────────────────────────────────────────────────
    Request / Response types
@@ -125,25 +111,20 @@ export async function POST(
     );
   }
 
-  // Determine API key — user-provided header takes priority
-  const userKey = request.headers.get('x-gemini-key')?.trim();
-  let apiKey: string;
-
-  if (userKey && userKey.length > 0) {
-    apiKey = userKey;
-  } else {
-    const envKeys = getEnvApiKeys();
-    if (envKeys.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            'No Gemini API key configured. Set GEMINI_API_KEY_1 in environment or provide a key via the settings panel.',
-          code: 'NO_API_KEY',
-        },
-        { status: 503 }
-      );
-    }
-    apiKey = rotateApiKey(envKeys);
+  // Which model answers. The header is named x-llm-key; x-gemini-key is still
+  // read so a key already saved in someone's browser keeps working.
+  const userKey = (request.headers.get('x-llm-key') || request.headers.get('x-gemini-key'))?.trim();
+  const provider = resolveProvider(userKey);
+  if (!provider) {
+    return NextResponse.json(
+      {
+        error:
+          'No language model configured. Set NVIDIA_API_KEY (free tier at build.nvidia.com) ' +
+          'or GEMINI_API_KEY_1 in the environment, or paste a key into the settings panel.',
+        code: 'NO_API_KEY',
+      },
+      { status: 503 }
+    );
   }
 
   // Parse request body
@@ -171,57 +152,46 @@ export async function POST(
     );
   }
 
-  // Call Gemini
   try {
-    const client = createGeminiClient(apiKey);
-    const analysis = await analyzeIntelligence(client, body.context, body.query.trim());
-
+    const analysis = await analyzeIntelligence(provider, body.context, body.query.trim());
     return NextResponse.json(
-      {
-        analysis,
-        model: 'gemini-2.0-flash',
-        timestamp: new Date().toISOString(),
-      },
-      {
-        headers: {
-          'X-RateLimit-Remaining': String(rateCheck.remaining),
-        },
-      }
+      { analysis, model: `${provider.label} / ${provider.model}`, timestamp: new Date().toISOString() },
+      { headers: { 'X-RateLimit-Remaining': String(rateCheck.remaining) } }
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown Gemini API error';
+    const message = err instanceof Error ? err.message : 'Unknown provider error';
 
-    // Detect specific Gemini error types
-    if (message.includes('API_KEY_INVALID') || message.includes('API key not valid')) {
+    // The provider's own status code is carried in the message by design (see
+    // ai-engine), so the operator is told which model failed and how, rather
+    // than a generic "analysis failed" that could mean anything.
+    if (/\b401\b|API_KEY_INVALID|API key not valid|Unauthorized/i.test(message)) {
       return NextResponse.json(
-        { error: 'Invalid Gemini API key. Please check your configuration.', code: 'INVALID_KEY' },
+        { error: `${provider.label} rejected the API key.`, code: 'INVALID_KEY' },
         { status: 401 }
       );
     }
-
-    if (message.includes('RESOURCE_EXHAUSTED') || message.includes('quota')) {
+    if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate limit/i.test(message)) {
       return NextResponse.json(
-        {
-          error: 'Gemini API quota exhausted. Try again later or provide your own API key.',
-          code: 'QUOTA_EXHAUSTED',
-        },
+        { error: `${provider.label} quota exhausted. Try again later or use your own key.`, code: 'QUOTA_EXHAUSTED' },
         { status: 429 }
       );
     }
-
-    if (message.includes('SAFETY')) {
+    if (/timed out|TimeoutError|aborted/i.test(message)) {
       return NextResponse.json(
-        {
-          error: 'Response blocked by Gemini safety filters. Try rephrasing your query.',
-          code: 'SAFETY_BLOCKED',
-        },
+        { error: `${provider.label} did not respond within 120s.`, code: 'TIMEOUT' },
+        { status: 504 }
+      );
+    }
+    if (/SAFETY/i.test(message)) {
+      return NextResponse.json(
+        { error: `${provider.label} blocked the response. Try rephrasing.`, code: 'SAFETY_BLOCKED' },
         { status: 422 }
       );
     }
 
-    console.error('[OSIRIS AI] Analysis error:', message);
+    console.error('[DINGIR] analysis error:', message);
     return NextResponse.json(
-      { error: 'Intelligence analysis failed. Please try again.', code: 'ANALYSIS_FAILED' },
+      { error: `Analysis failed via ${provider.label}: ${message.slice(0, 200)}`, code: 'ANALYSIS_FAILED' },
       { status: 500 }
     );
   }

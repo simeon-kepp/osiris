@@ -11,20 +11,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createGeminiClient, rotateApiKey } from '@/lib/ai-engine';
+import { resolveProvider } from '@/lib/ai-engine';
 
 export const dynamic = 'force-dynamic';
 
 type Mode = 'alerts' | 'markets' | 'chain';
 
-function getEnvApiKeys(): string[] {
-  const keys: string[] = [];
-  for (let i = 1; i <= 8; i++) {
-    const key = process.env[`GEMINI_API_KEY_${i}`];
-    if (key && key.trim().length > 0) keys.push(key.trim());
-  }
-  return keys;
-}
+
 
 /* ─────────────────────────── Digest builders ─────────────────────────── */
 
@@ -222,20 +215,22 @@ function heuristicOverview(mode: Mode, digest: Digest): string {
   return `${digest.summaryLine}\n\n${bullets}`;
 }
 
-async function geminiOverview(mode: Mode, digest: Digest, keys: string[]): Promise<string | null> {
+/** Same provider seam as the analyst. Returns null on any failure, and the
+ *  caller falls back to the heuristic renderer -- an overview is a nice-to-have
+ *  on a panel that must still render when no model is configured. */
+async function modelOverview(mode: Mode, digest: Digest): Promise<{ text: string; label: string } | null> {
+  const provider = resolveProvider();
+  if (!provider) return null;
   try {
-    const client = createGeminiClient(rotateApiKey(keys));
-    const model = client.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction:
-        'You are OSIRIS, a terse intelligence analyst. Given structured facts, write a sharp 2-4 sentence situational read-out. No preamble, no markdown headers, no hedging. Lead with the bottom line.',
-    });
-    const prompt = `MODE: ${mode.toUpperCase()}\nBOTTOM LINE: ${digest.summaryLine}\nFACTS:\n${digest.facts.map(f => `- ${f}`).join('\n')}\n\nWrite the read-out now.`;
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-    return text || null;
+    const text = (await provider.complete(
+      'You are DINGIR. Given structured facts, write a sharp 2-4 sentence situational read-out. ' +
+      'No preamble, no markdown headers, no hedging. Lead with the bottom line. ' +
+      'Use only the facts given; do not add any number, place or entity that is not in them.',
+      `MODE: ${mode.toUpperCase()}\nBOTTOM LINE: ${digest.summaryLine}\nFACTS:\n${digest.facts.map(f => `- ${f}`).join('\n')}\n\nWrite the read-out now.`
+    )).trim();
+    return text ? { text, label: provider.label } : null;
   } catch (e) {
-    console.warn('[OSIRIS] Gemini overview failed, using heuristic:', e);
+    console.warn('[DINGIR] overview model failed, using heuristic:', e);
     return null;
   }
 }
@@ -257,15 +252,11 @@ export async function POST(request: NextRequest) {
     : mode === 'chain' ? digestChain(body.payload)
     : digestAlerts(body.payload);
 
-  const keys = getEnvApiKeys();
-  let overview: string | null = null;
-  let generatedBy: 'gemini' | 'analyst' = 'analyst';
-
-  if (keys.length > 0) {
-    overview = await geminiOverview(mode, digest, keys);
-    if (overview) generatedBy = 'gemini';
-  }
-  if (!overview) overview = heuristicOverview(mode, digest);
+  const fromModel = await modelOverview(mode, digest);
+  const overview = fromModel?.text ?? heuristicOverview(mode, digest);
+  // Names the actual model rather than a hardcoded 'gemini', so the panel can
+  // never claim a provider that did not answer.
+  const generatedBy = fromModel?.label ?? 'heuristic';
 
   return NextResponse.json({
     mode,

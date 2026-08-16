@@ -8,8 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  createGeminiClient,
-  rotateApiKey,
+  resolveProvider,
   generateBriefing,
   type IntelligenceContext,
 } from '@/lib/ai-engine';
@@ -55,20 +54,6 @@ setInterval(() => {
   }
 }, 120_000);
 
-/* ─────────────────────────────────────────────────────────────
-   Environment Key Collection
-   ───────────────────────────────────────────────────────────── */
-
-function getEnvApiKeys(): string[] {
-  const keys: string[] = [];
-  for (let i = 1; i <= 8; i++) {
-    const key = process.env[`GEMINI_API_KEY_${i}`];
-    if (key && key.trim().length > 0) {
-      keys.push(key.trim());
-    }
-  }
-  return keys;
-}
 
 /* ─────────────────────────────────────────────────────────────
    Request / Response types
@@ -119,24 +104,18 @@ export async function POST(
     );
   }
 
-  const userKey = request.headers.get('x-gemini-key')?.trim();
-  let apiKey: string;
-
-  if (userKey && userKey.length > 0) {
-    apiKey = userKey;
-  } else {
-    const envKeys = getEnvApiKeys();
-    if (envKeys.length === 0) {
-      return NextResponse.json(
-        {
-          error:
-            'No Gemini API key configured. Set GEMINI_API_KEY_1 in environment or provide a key via the settings panel.',
-          code: 'NO_API_KEY',
-        },
-        { status: 503 }
-      );
-    }
-    apiKey = rotateApiKey(envKeys);
+  const userKey = (request.headers.get('x-llm-key') || request.headers.get('x-gemini-key'))?.trim();
+  const provider = resolveProvider(userKey);
+  if (!provider) {
+    return NextResponse.json(
+      {
+        error:
+          'No language model configured. Set NVIDIA_API_KEY (free tier at build.nvidia.com) ' +
+          'or GEMINI_API_KEY_1 in the environment, or paste a key into the settings panel.',
+        code: 'NO_API_KEY',
+      },
+      { status: 503 }
+    );
   }
 
   let body: BriefingRequestBody;
@@ -157,53 +136,25 @@ export async function POST(
   }
 
   try {
-    const client = createGeminiClient(apiKey);
-    const briefing = await generateBriefing(client, body.context);
-
+    const briefing = await generateBriefing(provider, body.context);
     return NextResponse.json(
-      {
-        briefing,
-        generatedAt: new Date().toISOString(),
-      },
-      {
-        headers: {
-          'X-RateLimit-Remaining': String(rateCheck.remaining),
-        },
-      }
+      { briefing, model: `${provider.label} / ${provider.model}`, generatedAt: new Date().toISOString() },
+      { headers: { 'X-RateLimit-Remaining': String(rateCheck.remaining) } }
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown Gemini API error';
-
-    if (message.includes('API_KEY_INVALID') || message.includes('API key not valid')) {
-      return NextResponse.json(
-        { error: 'Invalid Gemini API key. Please check your configuration.', code: 'INVALID_KEY' },
-        { status: 401 }
-      );
+    const message = err instanceof Error ? err.message : 'Unknown provider error';
+    if (/\b401\b|API_KEY_INVALID|API key not valid|Unauthorized/i.test(message)) {
+      return NextResponse.json({ error: `${provider.label} rejected the API key.`, code: 'INVALID_KEY' }, { status: 401 });
     }
-
-    if (message.includes('RESOURCE_EXHAUSTED') || message.includes('quota')) {
-      return NextResponse.json(
-        {
-          error: 'Gemini API quota exhausted. Try again later or provide your own API key.',
-          code: 'QUOTA_EXHAUSTED',
-        },
-        { status: 429 }
-      );
+    if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate limit/i.test(message)) {
+      return NextResponse.json({ error: `${provider.label} quota exhausted.`, code: 'QUOTA_EXHAUSTED' }, { status: 429 });
     }
-
-    if (message.includes('SAFETY')) {
-      return NextResponse.json(
-        {
-          error: 'Response blocked by Gemini safety filters. Try again.',
-          code: 'SAFETY_BLOCKED',
-        },
-        { status: 422 }
-      );
+    if (/timed out|TimeoutError|aborted/i.test(message)) {
+      return NextResponse.json({ error: `${provider.label} did not respond within 120s.`, code: 'TIMEOUT' }, { status: 504 });
     }
-
-    console.error('[OSIRIS AI] Briefing error:', message);
+    console.error('[DINGIR] briefing error:', message);
     return NextResponse.json(
-      { error: 'Briefing generation failed. Please try again.', code: 'BRIEFING_FAILED' },
+      { error: `Briefing failed via ${provider.label}: ${message.slice(0, 200)}`, code: 'BRIEFING_FAILED' },
       { status: 500 }
     );
   }
