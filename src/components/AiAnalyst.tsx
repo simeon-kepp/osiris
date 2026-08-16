@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain,
   Send,
-  Sparkles,
+  Eye,
   Settings,
   X,
   Bot,
@@ -849,8 +849,8 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                       color: 'var(--gold-primary)',
                     }}
                   >
-                    <Sparkles className="w-3 h-3" />
-                    GENERATE BRIEFING
+                    <Eye className="w-3 h-3" />
+                    GET BRIEFING
                   </button>
                   <div className="flex-1" />
                   <span className="flex items-center text-[9px] font-mono text-[var(--text-muted)] tracking-wider">

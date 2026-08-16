@@ -76,6 +76,15 @@ export default function ReasoningPanel({ onClose, focusNode }: Props) {
   const [graphLoading, setGraphLoading] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [visibleProv, setVisibleProv] = useState<Set<string>>(new Set(['OBSERVED', 'DERIVED', 'PREDICTED']));
+  // Empty means "show everything". At 28,730 nodes, 20,077 of them one type,
+  // being able to take a type out is the difference between looking at the
+  // graph and looking at the largest population in it.
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+  const toggleType = useCallback((ty: string) => setHiddenTypes(prev => {
+    const next = new Set(prev);
+    if (next.has(ty)) next.delete(ty); else next.add(ty);
+    return next;
+  }), []);
   const [data, setData] = useState<MycResp | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -392,6 +401,7 @@ export default function ReasoningPanel({ onClose, focusNode }: Props) {
           {mode === 'network' ? (
             graph ? (
               <NetworkView graph={graph} visibleProvenance={visibleProv}
+                hiddenTypes={hiddenTypes}
                 onPick={n => { setMode('3d'); setInput(n.id); fetchNode(n.id); }} />
             ) : (
               <div className="relative h-full w-full rounded-lg border border-white/[0.08] bg-black flex items-center justify-center px-6 text-center">
@@ -443,13 +453,28 @@ export default function ReasoningPanel({ onClose, focusNode }: Props) {
                   </button>
                 ))}
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                {graph.types.map(t => (
-                  <span key={t} className="flex items-center gap-1.5 text-[9px] font-mono text-[var(--text-muted)]">
-                    <span className="h-2 w-2 rounded-full" style={{ background: TYPE_SWATCH[t] || '#80808c' }} />
-                    {t}
-                  </span>
-                ))}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                {graph.types.map(t => {
+                  const on = !hiddenTypes.has(t);
+                  return (
+                    <button key={t} onClick={() => toggleType(t)}
+                      title={on ? `Hide ${t}` : `Show ${t}`}
+                      className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[9px] font-mono transition ${
+                        on ? 'text-[var(--text-secondary)] hover:bg-white/5'
+                           : 'text-[var(--text-muted)] line-through opacity-50'}`}>
+                      <span className="h-2 w-2 rounded-full shrink-0"
+                            style={{ background: on ? (TYPE_SWATCH[t] || '#80808c') : 'transparent',
+                                     border: on ? 'none' : `1px solid ${TYPE_SWATCH[t] || '#80808c'}` }} />
+                      {t}
+                    </button>
+                  );
+                })}
+                {hiddenTypes.size > 0 && (
+                  <button onClick={() => setHiddenTypes(new Set())}
+                    className="rounded px-1.5 py-0.5 text-[9px] font-mono text-[var(--cyan-primary)] hover:bg-[var(--cyan-primary)]/10">
+                    show all
+                  </button>
+                )}
               </div>
             </div>
           ) : (<>

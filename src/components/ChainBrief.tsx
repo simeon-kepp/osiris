@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, memo } from 'react';
-import { Loader2, Sparkles, Bug, Flame, ShieldAlert, ExternalLink } from 'lucide-react';
+import { Loader2, Eye, Bug, Flame, ShieldAlert, ExternalLink } from 'lucide-react';
 
 /**
  * DINGIR — Daily chain-threat brief.
  *
  * Rendered inside the RECON toolkit's CHAIN INTEL tab. Self-contained: owns
- * its own fetch, window selector, unattended refresh and AI overview, so the
+ * its own fetch, window selector, unattended refresh and DINGIR summary, so the
  * host panel only has to drop it in.
  */
 
@@ -90,7 +90,7 @@ function ChainBriefInner() {
       const d = await res.json();
       setAi(d.overview || d.error || 'No overview returned.');
     } catch {
-      setAi('AI overview unavailable.');
+      setAi('DINGIR summary unavailable.');
     } finally {
       setAiLoading(false);
     }
@@ -155,8 +155,8 @@ function ChainBriefInner() {
             className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-[9px] font-mono font-bold tracking-wider transition-colors disabled:opacity-50"
             style={{ color: ACCENT, background: `${ACCENT}14`, border: `1px solid ${ACCENT}44` }}
           >
-            {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-            AI OVERVIEW
+            {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+            DINGIR SUMMARY
           </button>
           {ai && (
             <div className="mt-1.5 px-2 py-1.5 rounded border text-[10px] font-mono leading-relaxed whitespace-pre-wrap"

@@ -28,15 +28,32 @@ export type NetworkGraph = {
 
 // One colour per node type. Distinct hues rather than a gradient, because these
 // are categories and a viewer has to be able to name what they are looking at.
+// EVERY type in the merged graph has an entry. This table held eight when the
+// graph held eight; the world merge brought it to seventeen and the nine new
+// ones fell through to the grey fallback. SANCTIONED_ENTITY alone is 20,077 of
+// 28,730 nodes, so seventy per cent of the picture rendered grey and the view
+// read as one undifferentiated blob. A missing entry here is not a cosmetic
+// gap, it is the largest category in the graph becoming invisible.
 const TYPE_COLOR: Record<string, [number, number, number]> = {
-  APPLICATION:     [0.00, 0.96, 0.77],
-  DOMAIN:          [0.35, 0.60, 1.00],
-  VENDOR:          [1.00, 0.72, 0.20],
-  SIGNAL_CLASS:    [1.00, 0.35, 0.45],
-  ORGANIZATION:    [0.65, 0.45, 1.00],
-  COUNTRY:         [0.30, 1.00, 0.45],
-  REGULATOR_STATE: [1.00, 1.00, 1.00],
-  ENTITY:          [0.55, 0.55, 0.65],
+  // audit corpus
+  APPLICATION:        [0.00, 0.96, 0.77],  // cyan
+  DOMAIN:             [0.35, 0.60, 1.00],  // blue
+  VENDOR:             [1.00, 0.72, 0.20],  // amber
+  SIGNAL_CLASS:       [1.00, 0.35, 0.45],  // red
+  ORGANIZATION:       [0.65, 0.45, 1.00],  // violet
+  REGULATOR_STATE:    [1.00, 1.00, 1.00],  // white
+  ENTITY:             [0.55, 0.55, 0.65],  // grey, and genuinely unclassified
+  // world model
+  COUNTRY:            [0.30, 1.00, 0.45],  // green -- the join key, kept loud
+  SANCTIONED_ENTITY:  [1.00, 0.45, 0.75],  // pink, the largest population
+  SANCTIONS_PROGRAM:  [0.85, 0.20, 0.55],  // deep magenta, its hubs
+  ACTOR:              [1.00, 0.85, 0.40],  // pale gold
+  GEOPOLITICAL_EVENT: [0.45, 0.85, 1.00],  // ice blue
+  DISASTER:           [1.00, 0.55, 0.10],  // orange
+  COMPANY:            [0.70, 1.00, 0.30],  // lime
+  // the system describing itself
+  WORKFLOW_STATE:     [0.60, 0.95, 0.90],  // pale teal
+  INTERACTION_THREAD: [0.80, 0.75, 1.00],  // pale violet
 };
 const FALLBACK_COLOR: [number, number, number] = [0.5, 0.5, 0.55];
 
@@ -57,6 +74,7 @@ const PROV_ALPHA: Record<string, number> = { OBSERVED: 0.5, DERIVED: 0.16, PREDI
 const VERT = `#version 300 es
 in vec3 aPos;
 in vec3 aColor;
+in float aSize;
 uniform mat3 uRot;
 uniform float uZoom;
 uniform vec2 uPan;
@@ -68,7 +86,7 @@ void main() {
   float persp = 2.6 / (2.6 + p.z);
   vec2 screen = p.xy * persp * uZoom + uPan;
   gl_Position = vec4(screen, 0.0, 1.0);
-  gl_PointSize = max(1.5, uPointScale * persp);
+  gl_PointSize = max(1.5, uPointScale * persp * aSize);
   vColor = aColor;
   vDepth = persp;
 }`;
@@ -123,10 +141,12 @@ interface Props {
   graph: NetworkGraph;
   /** Provenance classes to draw. Absent = draw all of them. */
   visibleProvenance?: Set<string>;
+  /** Node types to leave out. Empty = draw all of them. */
+  hiddenTypes?: Set<string>;
   onPick?: (node: NetworkNode) => void;
 }
 
-export default function NetworkView({ graph, visibleProvenance, onPick }: Props) {
+export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onPick }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const view = useRef({ angle: 0.5, tilt: 0.35, zoom: 1.1, panX: 0, panY: 0 });
@@ -140,24 +160,75 @@ export default function NetworkView({ graph, visibleProvenance, onPick }: Props)
     const n = graph.nodes.length;
     const pos = new Float32Array(n * 3);
     const col = new Float32Array(n * 3);
+    const siz = new Float32Array(n);
+
+    // WHY THE AXES ARE EQUALISED. The coordinates are the first three principal
+    // components of the embedding, and PCA emits its axes in order of variance:
+    // PC1 carries far more than PC3, so the cloud renders as a flat pancake seen
+    // edge-on. That flatness is a property of how PCA orders its output, not of
+    // the data -- the same points in the same relative arrangement, with each
+    // axis scaled to comparable spread, fill a volume you can actually rotate
+    // and read. This is a per-axis linear rescale: it moves nothing past
+    // anything else and invents no structure. What it does cost is that
+    // distances are no longer comparable BETWEEN axes, which matters for
+    // measuring and not for looking, and nothing here measures.
+    let mx = 0, my = 0, mz = 0;
+    for (const nd of graph.nodes) { mx += nd.x; my += nd.y; mz += nd.z; }
+    mx /= n || 1; my /= n || 1; mz /= n || 1;
+    let vx = 0, vy = 0, vz = 0;
+    for (const nd of graph.nodes) {
+      vx += (nd.x - mx) ** 2; vy += (nd.y - my) ** 2; vz += (nd.z - mz) ** 2;
+    }
+    const sx = Math.sqrt(vx / (n || 1)) || 1;
+    const sy = Math.sqrt(vy / (n || 1)) || 1;
+    const sz = Math.sqrt(vz / (n || 1)) || 1;
+    const SPREAD = 0.42;   // keeps the whitened cloud inside the clip volume
+
+    // Degree, so hubs are visible as hubs. 28,730 identically-sized dots hide
+    // the fact that a handful of them hold thousands of edges.
+    const degree = new Float32Array(n);
+    for (const e of graph.edges) { degree[e.s]++; degree[e.o]++; }
+    let maxDeg = 1;
+    for (let i = 0; i < n; i++) if (degree[i] > maxDeg) maxDeg = degree[i];
+
     for (let i = 0; i < n; i++) {
       const node = graph.nodes[i];
-      pos[i * 3] = node.x; pos[i * 3 + 1] = node.y; pos[i * 3 + 2] = node.z;
+      pos[i * 3]     = ((node.x - mx) / sx) * SPREAD;
+      pos[i * 3 + 1] = ((node.y - my) / sy) * SPREAD;
+      pos[i * 3 + 2] = ((node.z - mz) / sz) * SPREAD;
       const c = TYPE_COLOR[node.type] || FALLBACK_COLOR;
       col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+      // Cube root, not linear: degree is heavy-tailed (6121 against a median of
+      // 2), and a linear map would draw one node the size of the panel and
+      // everything else as a pixel.
+      siz[i] = 0.55 + 1.9 * Math.cbrt(degree[i] / maxDeg);
     }
+    // Type filtering happens here rather than in the shader, so hidden nodes
+    // cost nothing to draw at all. Points move from drawArrays to drawElements
+    // for the same reason: an index buffer of what is visible beats drawing
+    // 28,730 points and discarding most of them.
+    const hidden = hiddenTypes && hiddenTypes.size ? hiddenTypes : null;
+    const visibleIdx: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (!hidden || !hidden.has(graph.nodes[i].type)) visibleIdx.push(i);
+    }
+    const pointIndices = new Uint32Array(visibleIdx);
+
     // One index buffer per provenance class, so each is drawn with its own
-    // alpha in its own call instead of being sorted per frame.
+    // alpha in its own call instead of being sorted per frame. An edge is drawn
+    // only when BOTH ends are: a line into a hidden node would point at nothing
+    // and read as an edge to empty space.
     const byProv = new Map<string, number[]>();
     for (const e of graph.edges) {
+      if (hidden && (hidden.has(graph.nodes[e.s]?.type) || hidden.has(graph.nodes[e.o]?.type))) continue;
       if (!byProv.has(e.p)) byProv.set(e.p, []);
       byProv.get(e.p)!.push(e.s, e.o);
     }
     const edgeSets = [...byProv.entries()].map(([prov, idx]) => ({
       prov, indices: new Uint32Array(idx), count: idx.length,
     }));
-    return { pos, col, edgeSets, n };
-  }, [graph]);
+    return { pos, col, siz, edgeSets, n, pointIndices };
+  }, [graph, hiddenTypes]);
 
   const draw = useRef<() => void>(() => {});
 
@@ -182,6 +253,12 @@ export default function NetworkView({ graph, visibleProvenance, onPick }: Props)
     const colBuf = gl.createBuffer()!;
     gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
     gl.bufferData(gl.ARRAY_BUFFER, buffers.col, gl.STATIC_DRAW);
+    const sizBuf = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, buffers.siz, gl.STATIC_DRAW);
+    const pointIdxBuf = gl.createBuffer()!;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pointIdxBuf);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, buffers.pointIndices, gl.STATIC_DRAW);
 
     const edgeBufs = buffers.edgeSets.map(set => {
       const b = gl.createBuffer()!;
@@ -199,6 +276,15 @@ export default function NetworkView({ graph, visibleProvenance, onPick }: Props)
       gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
       gl.enableVertexAttribArray(aColor);
       gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+      // The line shader has no aSize, so getAttribLocation returns -1 there.
+      // Binding a -1 location is a GL error, hence the guard rather than an
+      // unconditional bind.
+      const aSize = gl.getAttribLocation(prog, 'aSize');
+      if (aSize >= 0) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, sizBuf);
+        gl.enableVertexAttribArray(aSize);
+        gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, 0, 0);
+      }
     };
 
     const setUniforms = (prog: WebGLProgram, pointScale: number) => {
@@ -231,7 +317,7 @@ export default function NetworkView({ graph, visibleProvenance, onPick }: Props)
 
     // Point size shrinks as the graph grows: 843 nodes want dots you can aim
     // at, 27,000 want a cloud you can read the shape of.
-    const pointScale = Math.max(3, Math.min(11, 900 / Math.sqrt(buffers.n || 1)));
+    const pointScale = Math.max(3, Math.min(14, 900 / Math.sqrt(buffers.pointIndices.length || 1)));
 
     const render = () => {
       gl.clearColor(0, 0, 0, 0);
@@ -252,7 +338,8 @@ export default function NetworkView({ graph, visibleProvenance, onPick }: Props)
       gl.useProgram(pointProg);
       bindAttribs(pointProg);
       setUniforms(pointProg, pointScale);
-      gl.drawArrays(gl.POINTS, 0, buffers.n);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pointIdxBuf);
+      gl.drawElements(gl.POINTS, buffers.pointIndices.length, gl.UNSIGNED_INT, 0);
     };
     draw.current = render;
 
