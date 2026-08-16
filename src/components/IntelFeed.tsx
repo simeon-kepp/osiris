@@ -132,7 +132,10 @@ export default function IntelFeed({ data, onLocate }: IntelFeedProps) {
                     {item.machine_assessment && (
                       <div className="mt-1.5 flex items-start gap-1.5 bg-red-950/20 border border-red-900/20 rounded px-2 py-1">
                         <Zap className="w-2.5 h-2.5 text-red-400 flex-shrink-0 mt-0.5" />
-                        <span className="text-[9px] font-mono text-red-400/80 leading-relaxed">
+                        {/* A machine's written assessment is prose, so it gets the
+                            body face. Mono stays on the labels and timestamps
+                            around it, where the character grid does work. */}
+                        <span className="text-[11px] text-red-400/80 leading-relaxed">
                           {item.machine_assessment}
                         </span>
                       </div>

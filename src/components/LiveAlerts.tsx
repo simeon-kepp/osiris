@@ -199,7 +199,14 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start gap-1.5 mb-2">
                           <Icon className="w-3.5 h-3.5 flex-shrink-0 mt-[2px]" style={{ color: sevColor }} />
-                          <span className={`text-[10px] font-mono text-[#E8E6E0] leading-relaxed ${alert.type === 'news' ? 'line-clamp-3' : 'truncate'}`}>
+                          {/* Prose, not data. This was font-mono at 10px, i.e. a
+                              HUD typeface set at a size meant for a timestamp,
+                              carrying three lines of running text. Mono stays on
+                              the labels, sources and timestamps below, where the
+                              character grid is the point; the sentence a human
+                              actually reads gets the body face and two more
+                              pixels (live feedback 2026-08-16). */}
+                          <span className={`text-[12px] text-[#E8E6E0] leading-relaxed ${alert.type === 'news' ? 'line-clamp-3' : 'truncate'}`}>
                             {(alert.description || alert.title || '').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')}
                           </span>
                         </div>

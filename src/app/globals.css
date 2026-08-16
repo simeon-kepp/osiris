@@ -306,7 +306,15 @@ html:has(.docs-root) body {
 /* ═══════════════════════════════════════════════════════════════
    MAP OVERRIDES
    ═══════════════════════════════════════════════════════════════ */
-.maplibregl-popup-content { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
+/* maplibre-gl ships its own font-family on the popup container ("Helvetica
+   Neue", Arial, Helvetica, sans-serif). Our popup markup sets a font on the
+   INNER div, so anything the inner div does not cover -- the close button, any
+   text the popup renders itself -- fell through to the system sans, which on
+   Linux is Roboto. Measured 2026-08-16: the container computed to Helvetica
+   while its child computed to JetBrains Mono. Setting it on the container makes
+   the popup part of the same type system as the rest of the app. */
+.maplibregl-popup-content { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; font-family: var(--font-body) !important; }
+.maplibregl-popup-close-button { font-family: var(--font-body) !important; }
 .maplibregl-popup-tip { display: none !important; }
 .maplibregl-ctrl-attrib { display: none !important; }
 .maplibregl-popup-close-button { color: var(--text-muted) !important; font-size: 16px !important; padding: 4px 8px !important; }
