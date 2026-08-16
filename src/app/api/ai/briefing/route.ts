@@ -12,6 +12,7 @@ import {
   generateBriefing,
   type IntelligenceContext,
 } from '@/lib/ai-engine';
+import { currentLogin } from '@/lib/dingirSessionServer';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +82,12 @@ interface ErrorResponse {
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse<BriefingResponse | ErrorResponse>> {
+  // Same gate as /api/ai/analyze -- see that route for the full reasoning.
+  // AiAnalyst.tsx (the only caller) is UI-hidden without a session, but a
+  // hidden panel does not stop a direct POST, and until this fix nothing
+  // here did either.
+  if (!(await currentLogin())) return new NextResponse(null, { status: 404 });
+
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     request.headers.get('x-real-ip') ||

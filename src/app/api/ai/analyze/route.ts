@@ -14,6 +14,7 @@ import {
   analyzeIntelligence,
   type IntelligenceContext,
 } from '@/lib/ai-engine';
+import { currentLogin } from '@/lib/dingirSessionServer';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,6 +86,20 @@ interface ErrorResponse {
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse<AnalyzeResponse | ErrorResponse>> {
+  // AiAnalyst.tsx, the only caller, is itself mounted only behind
+  // dingirLogin in page.tsx -- but a hidden UI element does not stop a
+  // direct POST to this route, and until this fix nothing here did either.
+  // Every other DINGIR reasoning route (graph, mycelium, feed, evidence)
+  // gates the same way: no session, 404, not 403, so a probe cannot even
+  // confirm the endpoint exists. This route had none of that -- an
+  // unauthenticated caller could burn the operator's configured LLM
+  // quota (Gemini/NVIDIA) with only a 5-req/min-per-IP limit standing
+  // between them and it, trivially defeated by rotating IPs. Found by
+  // actually mining the original plan's Phase 5 checklist item ("confirm
+  // the panel is unreachable signed out") instead of assuming a hidden
+  // panel implies a protected backend.
+  if (!(await currentLogin())) return new NextResponse(null, { status: 404 });
+
   // Extract client IP
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
