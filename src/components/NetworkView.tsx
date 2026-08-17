@@ -169,7 +169,15 @@ interface Props {
 export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onPick }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const view = useRef({ angle: 0.5, tilt: 0.35, zoom: 1.1, panX: 0, panY: 0 });
+  // zoom is 0.85, not the pre-SPREAD 1.1: point size (gl_PointSize below) is
+  // driven by uPointScale * persp, not by uZoom, so zooming out to frame a
+  // wider cloud shrinks the on-screen GAP between points without shrinking
+  // the points themselves -- fully compensating zoom for SPREAD's 1.15->1.75
+  // growth would have put the separation right back where it started. This
+  // is a partial compensation on purpose: enough that the whole cloud is
+  // visible without a manual scroll on first load, not so much that it
+  // cancels out what SPREAD was just changed to do.
+  const view = useRef({ angle: 0.5, tilt: 0.35, zoom: 0.85, panX: 0, panY: 0 });
   const drag = useRef({ on: false, x: 0, y: 0, moved: false });
   const [glError, setGlError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<NetworkNode | null>(null);
@@ -229,7 +237,12 @@ export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onP
       const r = Math.hypot((nd.x - mx) / sx, (nd.y - my) / sy, (nd.z - mz) / sz);
       if (r > rMax) rMax = r;
     }
-    const SPREAD = 1.15;
+    // 1.15 kept the cloud technically de-clumped (14.0% inside a quarter-
+    // radius, measured above) but still read as one dense mass at a glance --
+    // Simeon's own reaction looking at the live render. Pushed further: the
+    // sqrt already does the real work of pulling the crowded core apart, this
+    // constant just sets how much room the result gets to breathe in.
+    const SPREAD = 1.75;
 
     // Degree, so hubs are visible as hubs. 28,730 identically-sized dots hide
     // the fact that a handful of them hold thousands of edges.
@@ -463,7 +476,7 @@ export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onP
       draw.current();
     };
     const onDbl = () => {
-      view.current = { angle: 0.5, tilt: 0.35, zoom: 1.1, panX: 0, panY: 0 };
+      view.current = { angle: 0.5, tilt: 0.35, zoom: 0.85, panX: 0, panY: 0 };
       draw.current();
     };
     cv.addEventListener('pointerdown', onDown);
