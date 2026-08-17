@@ -439,6 +439,10 @@ export default function Dashboard() {
     buoys: true,
     fires: false,
     weather: false,
+    // Off by default: an always-on 2,500-particle animation is a real cost
+    // (redraws every frame, fetches a wind grid per viewport) a first-time
+    // visitor should not pay without asking for it.
+    wind: false,
     radiation: false,
     infrastructure: false,
     global_incidents: true,

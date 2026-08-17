@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import WindParticles from './WindParticles';
 
 interface OsirisMapProps {
   data: any;
@@ -2572,7 +2573,12 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     return () => { map.off('moveend', reportCenter); };
   }, [mapReady, onMapCenter]);
 
-  return <div ref={containerRef} className="absolute inset-0 w-full h-full" />;
+  return (
+    <div className="absolute inset-0 w-full h-full">
+      <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+      <WindParticles map={mapRef.current} active={!!activeLayers.wind} wrapRef={containerRef} />
+    </div>
+  );
 }
 
 export default memo(OsirisMap);

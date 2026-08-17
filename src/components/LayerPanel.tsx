@@ -104,6 +104,9 @@ const LAYER_GROUPS: LayerGroupDef[] = [
       { key: 'buoys', label: 'Ocean Buoys', dataKey: 'buoys' },
       { key: 'fires', label: 'Active Fires', dataKey: 'fires' },
       { key: 'weather', label: 'Severe Weather', dataKey: 'weather_events' },
+      // No dataKey: this is an animated particle overlay, not a discrete
+      // feature list, so there is no "N features" count to show.
+      { key: 'wind', label: 'Wind Streams', dataKey: '' },
     ],
   },
   {
