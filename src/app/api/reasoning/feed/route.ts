@@ -35,7 +35,7 @@ async function pollOnce() {
   try {
     const res = await fetch(`${DINGIR_API_URL}/reasoning/feed?limit=60`, {
       headers: { 'X-API-Key': DINGIR_API_KEY },
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(330_000), // was 180s, shorter than a measured 238.1s cold retrain -- see reasoning/graph/route.ts
     });
     if (!res.ok) return;
     const body = (await res.json()) as Snapshot;

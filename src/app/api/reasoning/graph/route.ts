@@ -46,10 +46,15 @@ export async function GET(req: Request) {
 
   try {
     // Generous timeout: a cold bi_api builds the graph on the first
-    // /reasoning/* request before it can answer anything.
+    // /reasoning/* request before it can answer anything. Was 180s, measured
+    // too short -- a real cold retrain on the merged world-model graph
+    // (46,186 nodes after the 2026-08-17 ocean-buoy merge) took 238.1s
+    // (~/.dingir/logs/bi_api.log), so a request landing during that window
+    // aborted here with "unreachable" even though bi_api was still working
+    // and would have answered 58s later. The graph only grows from here.
     const upstream = await fetch(`${DINGIR_API_URL}/reasoning/graph`, {
       headers: { 'X-API-Key': DINGIR_API_KEY },
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(330_000),
     });
     const text = await upstream.text();
     if (upstream.ok) cache = { text, fetchedAt: Date.now() };

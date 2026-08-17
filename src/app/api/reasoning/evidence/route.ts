@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   try {
     const upstream = await fetch(
       `${DINGIR_API_URL}/reasoning/evidence?node=${encodeURIComponent(node)}`,
-      { headers: { 'X-API-Key': DINGIR_API_KEY }, signal: AbortSignal.timeout(180_000) }
+      { headers: { 'X-API-Key': DINGIR_API_KEY }, signal: AbortSignal.timeout(330_000) } // was 180s, shorter than a measured 238.1s cold retrain -- see reasoning/graph/route.ts
     );
     // Passed through as text: this proxy adds nothing to the body, so it has no
     // reason to parse and re-serialize it.

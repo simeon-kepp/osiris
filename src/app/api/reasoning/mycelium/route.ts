@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   try {
     const upstream = await fetch(
       `${DINGIR_API_URL}/reasoning/mycelium?node=${encodeURIComponent(node)}&k=${encodeURIComponent(k)}`,
-      { headers: { 'X-API-Key': DINGIR_API_KEY }, signal: AbortSignal.timeout(180_000) }
+      { headers: { 'X-API-Key': DINGIR_API_KEY }, signal: AbortSignal.timeout(330_000) } // was 180s, shorter than a measured 238.1s cold retrain -- see reasoning/graph/route.ts
     );
     const body = await upstream.json();
     return NextResponse.json(body, { status: upstream.status });

@@ -861,7 +861,12 @@ export default function Dashboard() {
       intervals.push(setInterval(() => fetchEndpoint('/api/radiation', d => ({ radiation: d.stations })), 300000)); // 5m
     }
     if (activeLayers.maritime) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/maritime', d => ({ maritime_ports: d.ports, maritime_chokepoints: d.chokepoints, maritime_ships: d.ships })), 10000)); // 10s
+      // Was 10s: a 2.2MB/14.6k-ship GeoJSON rebuild every 10s, unconditionally
+      // (including in a background tab) -- the single most out-of-family poll
+      // interval in this file (everything else is 5-30min) and, measured,
+      // the biggest contributor to the dashboard feeling laggy. AIS positions
+      // don't meaningfully change ship-to-ship at 10s resolution anyway.
+      intervals.push(setInterval(() => fetchEndpoint('/api/maritime', d => ({ maritime_ports: d.ports, maritime_chokepoints: d.chokepoints, maritime_ships: d.ships }), undefined, { skipWhenHidden: true }), 60000)); // 60s
     }
     if ((activeLayers as any).cyber_attacks) {
       intervals.push(setInterval(() => {
