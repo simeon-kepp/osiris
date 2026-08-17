@@ -2396,13 +2396,20 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       const sourceId = `arcgis-${layer.id}`;
       const c = layer.color || '#D4AF37';
       const o = layer.opacity ?? 0.8;
+      // layer.geojson is null until the debounced viewport-bbox fetch (in
+      // page.tsx) resolves -- every newly-added layer passes through that
+      // gap for at least one render. maplibre's GeoJSON source rejects
+      // `null` outright ("not a valid GeoJSON object"), so an empty
+      // FeatureCollection stands in until the real geometry arrives and
+      // replaces it via the setData() branch below.
+      const geojson = layer.geojson ?? EMPTY_FC;
       if (!map.getSource(sourceId)) {
-        map.addSource(sourceId, { type: 'geojson', data: layer.geojson });
+        map.addSource(sourceId, { type: 'geojson', data: geojson });
         map.addLayer({ id: `${sourceId}-fill`, type: 'fill', source: sourceId, paint: { 'fill-color': c, 'fill-opacity': o * 0.15, 'fill-outline-color': c } });
         map.addLayer({ id: `${sourceId}-line`, type: 'line', source: sourceId, paint: { 'line-color': c, 'line-width': 2, 'line-opacity': o } });
         map.addLayer({ id: `${sourceId}-circle`, type: 'circle', source: sourceId, filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': c, 'circle-radius': 5, 'circle-stroke-width': 1.5, 'circle-stroke-color': '#000', 'circle-opacity': o } });
       } else {
-        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(layer.geojson);
+        (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geojson);
         // Update paint properties for color/opacity changes
         if (map.getLayer(`${sourceId}-fill`)) {
           map.setPaintProperty(`${sourceId}-fill`, 'fill-color', c);

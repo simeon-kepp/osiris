@@ -67,6 +67,10 @@ const DEFAULT_ARCGIS_LAYERS = [
   { id: '45c39d7105ea450582376ea2a72da80d', title: 'Electricity Transmission Lines', url: 'https://services2.arcgis.com/EJBJ6iaHlb2c1Uh1/arcgis/rest/services/Electricity_Transmission_Lines/FeatureServer', color: '#00E5FF' },
   { id: '617326a3d42d453a8dfa46521f907143', title: 'US Electric Power Transmission', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/US_Electric_Power_Transmission_Lines/FeatureServer', color: '#B388FF' },
 ];
+// Versioned so a browser with an empty pre-existing save (see the migration
+// in the load effect below) can be told apart from a genuine first run.
+const ARCGIS_LAYERS_KEY = 'dingir-arcgis-layers-v2';
+const ARCGIS_LAYERS_LEGACY_KEY = 'dingir-arcgis-layers';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -288,10 +292,28 @@ export default function Dashboard() {
   // these few hundred bytes of reference.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('dingir-arcgis-layers');
-      // No saved state at all means a first run, and a first run gets the
-      // preset. A saved EMPTY list means the user removed everything, which is
-      // a decision and is left alone.
+      let raw = localStorage.getItem(ARCGIS_LAYERS_KEY);
+      // No saved state under the current key at all means a first run, and a
+      // first run gets the preset. A saved EMPTY list means the user removed
+      // everything, which is a decision and is left alone -- BUT ONLY once
+      // that decision was actually possible to make. Any browser that visited
+      // before DEFAULT_ARCGIS_LAYERS existed already has an empty array saved
+      // under the pre-migration key (`dingir-arcgis-layers`, no version
+      // suffix) from before there was anything to remove -- that emptiness
+      // means "this feature didn't exist yet", not "the user deleted the
+      // pipelines", and was silently locking the preset out for good on
+      // exactly the browsers that had used the dashboard longest. Migrate:
+      // an empty OLD array is treated the same as no saved state at all; a
+      // non-empty one (a real customisation) is carried over as-is.
+      if (raw === null) {
+        const old = localStorage.getItem(ARCGIS_LAYERS_LEGACY_KEY);
+        if (old) {
+          try {
+            const parsedOld = JSON.parse(old);
+            if (Array.isArray(parsedOld) && parsedOld.length) raw = old;
+          } catch { /* corrupt legacy value -- fall through to first-run seed */ }
+        }
+      }
       const refs: Array<{ id: string; title: string; url: string; color: string; visible: boolean; opacity: number }> =
         raw === null
           ? DEFAULT_ARCGIS_LAYERS.map(l => ({ ...l, visible: true, opacity: 0.8 }))
@@ -305,10 +327,13 @@ export default function Dashboard() {
 
   useEffect(() => { arcgisLayersRef.current = arcgisLayers; }, [arcgisLayers]);
 
-  // Written on every change, geometry stripped.
+  // Written on every change, geometry stripped. Under the versioned key --
+  // the legacy key is read once for migration above and never written again,
+  // so it stays a fossil of "state saved before pipeline presets existed"
+  // rather than getting overwritten and losing that meaning.
   useEffect(() => {
     try {
-      localStorage.setItem('dingir-arcgis-layers', JSON.stringify(
+      localStorage.setItem(ARCGIS_LAYERS_KEY, JSON.stringify(
         arcgisLayers.map(({ id, title, url, color, visible, opacity }) =>
           ({ id, title, url, color, visible, opacity }))));
     } catch { /* quota or private mode; the session still works */ }
