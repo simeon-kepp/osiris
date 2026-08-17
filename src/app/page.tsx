@@ -1063,8 +1063,13 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* ── OSIRIS title — letter-by-letter stagger ── */}
-            <div className="flex items-center gap-[2px] mb-3 z-[2]">
+            {/* ── OSIRIS title — letter-by-letter stagger ──
+                Subtitle ("GLOBAL INTELLIGENCE PLATFORM") removed per live
+                feedback -- just the logo and the DINGIR wordmark now.
+                mb-3 -> mb-8 absorbs the spacing the subtitle block used to
+                provide before the progress bar, so removing it doesn't
+                leave the layout looking cramped. */}
+            <div className="flex items-center gap-[2px] mb-8 z-[2]">
               {'DINGIR'.split('').map((letter, i) => (
                 <motion.span
                   key={i}
@@ -1077,20 +1082,6 @@ export default function Dashboard() {
                   {letter}
                 </motion.span>
               ))}
-            </div>
-
-            {/* ── Subtitle — typewriter reveal ── */}
-            <div className="overflow-hidden mb-8 z-[2]">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: '100%' }}
-                transition={{ delay: 1.2, duration: 0.8, ease: 'easeInOut' }}
-                className="overflow-hidden whitespace-nowrap"
-              >
-                <p className="text-[10px] md:text-[11px] font-mono tracking-[0.5em] text-[var(--gold-primary)]" style={{ opacity: 0.8 }}>
-                  GLOBAL INTELLIGENCE PLATFORM
-                </p>
-              </motion.div>
             </div>
 
             {/* ── Multi-stage progress bar ── */}
