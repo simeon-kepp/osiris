@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plane, Satellite, Sun, AlertTriangle, Camera,
   CloudLightning, Ship, Network, Database, Ghost,
-  Flame, Tv, Radio, Mountain, Anchor, Megaphone
+  Flame, Tv, Radio, Mountain, Anchor, Megaphone, TrainFront
 } from 'lucide-react';
 
 interface LayerPanelProps {
@@ -455,6 +455,31 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
             </AnimatePresence>
           </div>
         )}
+        {/* Railways gets its own icon, not just a row inside the ArcGIS
+            flyout -- the same first-class treatment as Maritime Lines in the
+            SDK group, because that is what was actually asked for: an on/off
+            switch for trains sitting where the other transport-network
+            toggles already live, not one more level of menu to open. */}
+        {(() => {
+          const rail = arcgisLayers?.find(l => l.id === 'gogf-railways-14');
+          if (!rail) return null;
+          return (
+            <button
+              onClick={() => onToggleArcgis?.(rail.id)}
+              title={rail.visible ? 'Hide Railways' : 'Show Railways'}
+              className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-300 cursor-pointer"
+              style={{ background: 'transparent' }}>
+              <TrainFront
+                className="transition-all duration-300"
+                style={{
+                  width: 16, height: 16,
+                  color: rail.visible ? rail.color : 'rgba(255,255,255,0.2)',
+                  filter: rail.visible ? `drop-shadow(0 0 4px ${rail.color}80)` : 'none',
+                }}
+              />
+            </button>
+          );
+        })()}
       </div>
 
       {/* Subtle separator */}
