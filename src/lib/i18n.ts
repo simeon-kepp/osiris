@@ -25,7 +25,6 @@ export type Locale = 'en' | 'de';
 const DICT = {
   en: {
     'header.title': 'DINGIR',
-    'header.subtitle': 'OPEN SOURCE INTELLIGENCE',
     'tool.reasoning': 'REASONING',
     'tool.reasoning.title': "Reasoning Panel — DINGIR's trained graph-embedding space",
     'tool.feed': 'FEED',
@@ -103,7 +102,6 @@ const DICT = {
   },
   de: {
     'header.title': 'DINGIR',
-    'header.subtitle': 'OPEN SOURCE INTELLIGENCE',
     'tool.reasoning': 'REASONING',
     'tool.reasoning.title': 'Reasoning-Panel — DINGIRs trainierter Graph-Embedding-Raum',
     'tool.feed': 'FEED',

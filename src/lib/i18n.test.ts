@@ -131,7 +131,6 @@ describe('dictionary parity', () => {
     'tool.feed',        // "Feed" likewise -- "RSS-Feed" etc. are not translated in German either
     'tool.reasoning',   // kept as the feature's own name, matching "Reasoning Panel" branding
     'tool.remote',      // kept as the feature's own name; "Remote" is common German tech shorthand
-    'header.subtitle',  // "OPEN SOURCE INTELLIGENCE" -- open source is routinely left untranslated in German tech branding
   ]);
 
   it('every OTHER key actually has a distinct German translation, not a silent English fallback', () => {
