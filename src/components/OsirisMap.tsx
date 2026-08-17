@@ -212,7 +212,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       createDot(map, 'dot-fire', isGhost ? phantomPurple : '#E65100', 10);
       createDot(map, 'dot-cctv', cameraColor, 10);
 
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','buoys','gdelt','gps-jamming','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','sigint-news','conflict-zones', 'war-alerts-targets', 'war-alerts-lines', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       // ── FLIGHT ROUTE VISUALIZATION SOURCES & LAYERS ──
@@ -267,6 +267,21 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       map.addLayer({ id: 'eq-label', type: 'symbol', source: 'earthquakes', filter: ['>=',['get','magnitude'],4.5], layout: {
         'text-field': ['concat','M',['to-string',['get','magnitude']]], 'text-size': 9, 'text-font': ['Open Sans Regular'], 'text-offset': [0,1.5],
       }, paint: { 'text-color': '#F9A825', 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Ocean buoys — cyan-to-red on wave height, since that is the field
+      // this layer exists to surface. A station with no wave sensor (wind-
+      // only buoys are common) reads waveHeight: null, which must render as
+      // "no sensor" and not silently as "confirmed calm seas."
+      map.addLayer({ id: 'buoy-circles', type: 'circle', source: 'buoys', paint: {
+        'circle-radius': ['case', ['==', ['get','waveHeight'], null], 3,
+          ['interpolate',['linear'],['get','waveHeight'], 0,4, 2,7, 4,11, 8,16]],
+        'circle-color': ['case', ['==', ['get','waveHeight'], null], 'rgba(140,150,170,0.55)',
+          ['interpolate',['linear'],['get','waveHeight'], 0,'#00BCD4', 2,'#FFEB3B', 4,'#FF6D00', 8,'#D50000']],
+        'circle-opacity': 0.75, 'circle-stroke-width': 1, 'circle-stroke-color': '#00BCD4', 'circle-stroke-opacity': 0.3,
+      }});
+      map.addLayer({ id: 'buoy-label', type: 'symbol', source: 'buoys', filter: ['>=', ['coalesce', ['get','waveHeight'], 0], 2], layout: {
+        'text-field': ['concat', ['to-string', ['get','waveHeight']], 'm'], 'text-size': 9, 'text-font': ['Open Sans Regular'], 'text-offset': [0,1.5],
+      }, paint: { 'text-color': '#00E5FF', 'text-halo-color': '#000', 'text-halo-width': 1 }});
 
       // Fires — burnt sienna
       map.addLayer({ id: 'fires-heat', type: 'circle', source: 'fires', paint: {
@@ -855,6 +870,27 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       </div>`);
     });
 
+    // ── Ocean buoys (NOAA NDBC) ──
+    map.on('click', 'buoy-circles', e => {
+      if (!e.features?.length) return;
+      const p = e.features[0].properties as any;
+      const coords = (e.features[0].geometry as any).coordinates;
+      const val = (v: any, unit: string) => (v === null || v === undefined ? '—' : `${v}${unit}`);
+      popup(coords, `<div style="${pStyle}border:1px solid rgba(0,229,255,0.3);">
+        <div style="color:#00E5FF;font-size:13px;font-weight:700;margin-bottom:4px;">BUOY ${htmlEsc(p.id)}</div>
+        <div style="font-size:9px;color:#5C5A54;margin-bottom:8px;">${new Date(p.time).toUTCString()}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:9px;">
+          <div><span style="color:#5C5A54;">WAVE HT</span><br/><span style="color:#00E5FF;">${val(p.waveHeight,'m')}</span></div>
+          <div><span style="color:#5C5A54;">PERIOD</span><br/><span style="color:#E8E6E0;">${val(p.domPeriod,'s')}</span></div>
+          <div><span style="color:#5C5A54;">WAVE DIR</span><br/><span style="color:#E8E6E0;">${val(p.waveDir,'°')}</span></div>
+          <div><span style="color:#5C5A54;">WIND</span><br/><span style="color:#E8E6E0;">${val(p.windSpeed,'m/s')}</span></div>
+          <div><span style="color:#5C5A54;">PRESSURE</span><br/><span style="color:#E8E6E0;">${val(p.pressure,'hPa')}</span></div>
+          <div><span style="color:#5C5A54;">WATER °C</span><br/><span style="color:#E8E6E0;">${val(p.waterTemp,'°')}</span></div>
+        </div>
+        <a href="https://www.ndbc.noaa.gov/station_page.php?station=${encodeURIComponent(p.id||'')}" target="_blank" style="${linkStyle}color:#00E5FF;border:1px solid rgba(0,229,255,0.4);background:rgba(0,229,255,0.1);">NDBC STATION PAGE</a>
+      </div>`);
+    });
+
     // ── Satellites (SatNOGS powered) ──
     map.on('click', 'sat-dots', e => {
       if (!e.features?.length) return;
@@ -1098,7 +1134,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     });
 
     // ── Generic hover for clickables ──
-    ['conflict-icons','cctv-dots','eq-circles','sat-dots','fires-heat','gdelt-dots','weather-dots','infra-dots','maritime-dots','choke-dots','news-dots','sigint-news-dots','balloon-dots','rad-dots','ship-dots','sweep-device-dots','scan-targets-dots','sdk-sea','sdk-sea-glow','sdk-sea-atmo','sdk-air','sdk-air-glow','sdk-air-atmo','sdk-intel','sdk-intel-glow','sdk-intel-atmo','malware-dots','cyber-heads','gdelt-events-dots','cf-outage-dots','cf-attack-dots'].forEach(layer => {
+    ['conflict-icons','cctv-dots','eq-circles','buoy-circles','sat-dots','fires-heat','gdelt-dots','weather-dots','infra-dots','maritime-dots','choke-dots','news-dots','sigint-news-dots','balloon-dots','rad-dots','ship-dots','sweep-device-dots','scan-targets-dots','sdk-sea','sdk-sea-glow','sdk-sea-atmo','sdk-air','sdk-air-glow','sdk-air-atmo','sdk-intel','sdk-intel-glow','sdk-intel-atmo','malware-dots','cyber-heads','gdelt-events-dots','cf-outage-dots','cf-attack-dots'].forEach(layer => {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     });
@@ -1419,6 +1455,11 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     if (!mapReady) return;
     setGeo('earthquakes', activeLayers.earthquakes && data.earthquakes ? data.earthquakes.map((eq: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [eq.lng, eq.lat] }, properties: { id: eq.id, magnitude: eq.magnitude, place: eq.place, depth: eq.depth, source: eq.source } })) : []);
   }, [mapReady, data.earthquakes, activeLayers.earthquakes, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    setGeo('buoys', activeLayers.buoys && data.buoys ? data.buoys.map((b: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [b.lng, b.lat] }, properties: b })) : []);
+  }, [mapReady, data.buoys, activeLayers.buoys, setGeo]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -1773,6 +1814,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
   useEffect(() => {
     if (!mapReady) return;
     setVis(['eq-circles','eq-label'], activeLayers.earthquakes);
+    setVis(['buoy-circles','buoy-label'], activeLayers.buoys);
     const anySat = activeLayers.satellites || (activeLayers as any).sat_comms || (activeLayers as any).sat_military || (activeLayers as any).sat_navigation || (activeLayers as any).sat_earth || (activeLayers as any).sat_science;
     setVis(['sat-glow','sat-dots'], anySat);
     setVis(['gdelt-dots'], activeLayers.global_incidents);

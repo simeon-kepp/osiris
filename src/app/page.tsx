@@ -21,7 +21,7 @@ import GlobalStatusBar from '@/components/GlobalStatusBar';
 import LiveAlerts from '@/components/LiveAlerts';
 import WorldRemote from '@/components/WorldRemote';
 import ArcGISPanel from '@/components/ArcGISPanel';
-import { LAYER_STORAGE_KEY, applyLayers, pickSavedLayers, serializeLayers } from '@/lib/layerState';
+import { LAYER_STORAGE_KEY, LAYER_VERSION_STORAGE_KEY, CURRENT_LAYERS_VERSION, applyLayers, applyStoredLayers, pickSavedLayers, serializeLayers } from '@/lib/layerState';
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
 const CameraViewer = dynamic(() => import('@/components/CameraViewer'));
@@ -58,19 +58,38 @@ const ARCGIS_BUDGET_BYTES = 24_000_000;
 // removing one pointless -- it would be back on the next refresh -- so the
 // preset runs when there is no saved state at all, and after that the saved
 // state is the truth, including the absence of a layer the user deleted.
+// The original five entries here were all US federal datasets (EIA/HIFLD) --
+// worldwide coverage of "amurica" only, as Simeon put it. Replaced with
+// Bucknell University GIS's Global Oil and Gas Features service, a single
+// multi-layer FeatureServer with genuine worldwide extent (measured,
+// 2026-08-17: xmin/xmax -20037506/20037506 in Web Mercator, i.e. the full
+// -180..180 range; a live query over a Europe bbox returned real LineString
+// geometry from layers 13 and 14, not an empty US-clipped result). The two
+// electricity-transmission entries stay US-only: no global equivalent this
+// service or search turned up yet.
 const DEFAULT_ARCGIS_LAYERS = [
-  { id: '9833ca6c8103490b8ad145a30f0522ee', title: 'Natural Gas Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Natural_Gas_Interstate_and_Intrastate_Pipelines_1/FeatureServer', color: '#D4AF37' },
-  { id: 'bb2aee97117d403ea63bcfe6be4a12c8', title: 'Crude Oil Trunk Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Crude_Oil_Trunk_Pipelines_1/FeatureServer', color: '#FF6B35' },
-  { id: 'c745d9f4b81e42f3a54aee7aaa396975', title: 'Petroleum Products Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Petroleum_Products_Pipelines_1/FeatureServer', color: '#F7931E' },
-  { id: '25e6c30180974dada0dca74ba33fd558', title: 'Hydrocarbon Gas Liquids', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Hydrocarbon_Gas_Liquids_Pipelines_1/FeatureServer', color: '#FFD166' },
-  { id: 'd09356f9ecbe40b1ba9de7a820733746', title: 'Offshore Oil & Gas Pipelines', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/Oil_And_Natural_Gas_Pipelines_Gulf_2024Q4/FeatureServer', color: '#06D6A0' },
+  { id: 'gogf-pipelines-13', title: 'Global Oil & Gas Pipelines', url: 'https://services2.arcgis.com/xsh7pVZv42relbEf/arcgis/rest/services/Global_Oil_and_Gas_Features/FeatureServer/13', color: '#FF6B35' },
+  { id: 'gogf-railways-14', title: 'Global Railways', url: 'https://services2.arcgis.com/xsh7pVZv42relbEf/arcgis/rest/services/Global_Oil_and_Gas_Features/FeatureServer/14', color: '#8D6E63' },
+  { id: 'gogf-power-plants-2', title: 'Global Power Plants', url: 'https://services2.arcgis.com/xsh7pVZv42relbEf/arcgis/rest/services/Global_Oil_and_Gas_Features/FeatureServer/2', color: '#FFC107' },
   { id: '45c39d7105ea450582376ea2a72da80d', title: 'Electricity Transmission Lines', url: 'https://services2.arcgis.com/EJBJ6iaHlb2c1Uh1/arcgis/rest/services/Electricity_Transmission_Lines/FeatureServer', color: '#00E5FF' },
   { id: '617326a3d42d453a8dfa46521f907143', title: 'US Electric Power Transmission', url: 'https://services2.arcgis.com/FiaPA4ga0iQKduv3/arcgis/rest/services/US_Electric_Power_Transmission_Lines/FeatureServer', color: '#B388FF' },
 ];
 // Versioned so a browser with an empty pre-existing save (see the migration
 // in the load effect below) can be told apart from a genuine first run.
-const ARCGIS_LAYERS_KEY = 'dingir-arcgis-layers-v2';
-const ARCGIS_LAYERS_LEGACY_KEY = 'dingir-arcgis-layers';
+// Bumped to v3 when DEFAULT_ARCGIS_LAYERS swapped its five US-only pipeline
+// presets for global coverage -- v2 had already seeded the old US set into
+// real browsers (including this one, mid-session) by the time that swap
+// happened, and without a new key those US presets would look exactly like
+// a deliberate customisation the migration below is designed to preserve.
+// v2 is deliberately NOT in this chain: nothing in this codebase ever wrote
+// to it except the v2 first-run auto-seed itself (this whole key existed for
+// all of one working session before the preset swap above), so any v2 value
+// out there is provably the OLD US-only defaults, not a real customisation
+// -- carrying it forward would silently resurrect the exact staleness this
+// migration exists to end. Falls straight through to the original
+// pre-versioning key instead, which DOES hold real pre-preset user history.
+const ARCGIS_LAYERS_KEY = 'dingir-arcgis-layers-v3';
+const ARCGIS_LAYERS_LEGACY_KEYS = ['dingir-arcgis-layers'];
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -298,20 +317,20 @@ export default function Dashboard() {
       // everything, which is a decision and is left alone -- BUT ONLY once
       // that decision was actually possible to make. Any browser that visited
       // before DEFAULT_ARCGIS_LAYERS existed already has an empty array saved
-      // under the pre-migration key (`dingir-arcgis-layers`, no version
-      // suffix) from before there was anything to remove -- that emptiness
-      // means "this feature didn't exist yet", not "the user deleted the
-      // pipelines", and was silently locking the preset out for good on
-      // exactly the browsers that had used the dashboard longest. Migrate:
-      // an empty OLD array is treated the same as no saved state at all; a
-      // non-empty one (a real customisation) is carried over as-is.
+      // under an older key from before there was anything to remove -- that
+      // emptiness means "this feature didn't exist yet", not "the user
+      // deleted the pipelines", and was silently locking the preset out for
+      // good on exactly the browsers that had used the dashboard longest.
+      // Migrate: an empty OLD array is treated the same as no saved state at
+      // all; a non-empty one (a real customisation) is carried over as-is.
       if (raw === null) {
-        const old = localStorage.getItem(ARCGIS_LAYERS_LEGACY_KEY);
-        if (old) {
+        for (const legacyKey of ARCGIS_LAYERS_LEGACY_KEYS) {
+          const old = localStorage.getItem(legacyKey);
+          if (!old) continue;
           try {
             const parsedOld = JSON.parse(old);
-            if (Array.isArray(parsedOld) && parsedOld.length) raw = old;
-          } catch { /* corrupt legacy value -- fall through to first-run seed */ }
+            if (Array.isArray(parsedOld) && parsedOld.length) { raw = old; break; }
+          } catch { /* corrupt legacy value -- try the next key */ }
         }
       }
       const refs: Array<{ id: string; title: string; url: string; color: string; visible: boolean; opacity: number }> =
@@ -414,6 +433,10 @@ export default function Dashboard() {
     live_news: true,
     news_intel: true,
     earthquakes: true,
+    // Same default as earthquakes, not fires/weather's off-by-default: wave
+    // height off a real buoy network is a live tsunami precursor signal, the
+    // stated reason this layer exists at all.
+    buoys: true,
     fires: false,
     weather: false,
     radiation: false,
@@ -454,9 +477,22 @@ export default function Dashboard() {
     // app at a bare URL -- what `dingir` does on every start -- silently reset
     // every toggle.
     const p = new URLSearchParams(window.location.search);
-    const saved = pickSavedLayers(p.get('layers'), localStorage.getItem(LAYER_STORAGE_KEY));
+    const urlParam = p.get('layers');
+    const saved = pickSavedLayers(urlParam, localStorage.getItem(LAYER_STORAGE_KEY));
     if (saved !== null) {
-      setActiveLayers(prev => applyLayers(prev, saved) as typeof prev);
+      if (urlParam !== null) {
+        // An explicit link: reproduce it exactly, including its silence on
+        // any layer added since -- that fidelity is the entire point of a
+        // shareable URL.
+        setActiveLayers(prev => applyLayers(prev, saved) as typeof prev);
+      } else {
+        // This browser's own remembered preference: a layer missing because
+        // it did not exist yet should not read the same as one the user
+        // actually turned off.
+        const rawVersion = parseInt(localStorage.getItem(LAYER_VERSION_STORAGE_KEY) || '', 10);
+        const versionAtSave = Number.isFinite(rawVersion) ? rawVersion : null;
+        setActiveLayers(prev => applyStoredLayers(prev, saved, versionAtSave) as typeof prev);
+      }
     }
 
     // Probe which credential-gated feeds this deployment has configured, so the
@@ -490,7 +526,10 @@ export default function Dashboard() {
     urlTimer.current = setTimeout(() => {
       const active = serializeLayers(activeLayers);
       window.history.replaceState(null, '', `${window.location.pathname}?layers=${active}`);
-      try { localStorage.setItem(LAYER_STORAGE_KEY, active); } catch { /* private mode / quota */ }
+      try {
+        localStorage.setItem(LAYER_STORAGE_KEY, active);
+        localStorage.setItem(LAYER_VERSION_STORAGE_KEY, String(CURRENT_LAYERS_VERSION));
+      } catch { /* private mode / quota */ }
     }, 1500);
   }, [activeLayers]);
 
@@ -669,6 +708,19 @@ export default function Dashboard() {
     };
   }, [fetchEndpoint]);
 
+  // Ocean buoys refresh on their own timer, not just once on toggle: NDBC
+  // stations report roughly hourly, so this is a real-data-driven interval,
+  // not an arbitrary one, and it is what makes a wave-height anomaly show up
+  // without a manual reload -- the whole point of tracking it at all.
+  useEffect(() => {
+    if (!activeLayers.buoys) return;
+    const iv = setInterval(
+      () => fetchEndpoint('/api/buoys', d => ({ buoys: d.buoys }), undefined, { skipWhenHidden: true }),
+      900000, // 15 min
+    );
+    return () => clearInterval(iv);
+  }, [activeLayers.buoys, fetchEndpoint]);
+
   // ── LAYER-AWARE DATA LOADING — only fetch when layer is toggled ON ──
   const layerFetchedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -720,6 +772,11 @@ export default function Dashboard() {
     if (activeLayers.weather && !layerFetchedRef.current.has('weather')) {
       fetchEndpoint('/api/weather', d => ({ weather_events: d.events }));
       layerFetchedRef.current.add('weather');
+    }
+    // Ocean buoys (wave height / period — tsunami precursor signal)
+    if (activeLayers.buoys && !layerFetchedRef.current.has('buoys')) {
+      fetchEndpoint('/api/buoys', d => ({ buoys: d.buoys }));
+      layerFetchedRef.current.add('buoys');
     }
     // Infrastructure
     if (activeLayers.infrastructure && !layerFetchedRef.current.has('infrastructure')) {
