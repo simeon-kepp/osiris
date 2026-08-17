@@ -189,6 +189,15 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
     const ctx = cv.getContext('2d')!;
     let raf = 0;
 
+    // Resolved once, not per frame: canvas text ignores the CSS cascade, so
+    // a literal '"JetBrains Mono"' string here only works when that font
+    // happens to be installed on the visitor's OS -- otherwise it silently
+    // falls through to plain monospace instead of the self-hosted webfont
+    // next/font already loaded for the rest of the page. Reading the actual
+    // --font-hud value is what keeps this text matching everywhere else.
+    const hudFont = getComputedStyle(document.documentElement).getPropertyValue('--font-hud').trim()
+      || '"JetBrains Mono", monospace';
+
     const fit = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -267,7 +276,7 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
         if (tOf(n.sim) > 0.2 || !is3d) {
           ctx.fillStyle = 'rgba(180,190,200,0.7)';
           ctx.globalAlpha = is3d ? 0.35 + 0.55 * depth : 0.8;
-          ctx.font = '9px "JetBrains Mono", monospace';
+          ctx.font = `9px ${hudFont}`;
           ctx.fillText(n.word.slice(0, 24), x + r + 3, y + 3);
           ctx.globalAlpha = 1;
         }
@@ -276,7 +285,7 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
 
       ctx.fillStyle = '#00E5FF';
       ctx.beginPath(); ctx.arc(ccx, ccy, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 13px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#fff'; ctx.font = `bold 13px ${hudFont}`;
       ctx.fillText(d.word, ccx + 12, ccy + 5);
       screens.current = scr;
 

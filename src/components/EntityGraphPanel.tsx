@@ -11,6 +11,21 @@ import {
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 
+// The force-graph canvas draws its own text per node/link per frame, so a
+// literal "'JetBrains Mono'" string in ctx.font only works when that font
+// happens to be installed on the visitor's OS -- otherwise it silently
+// falls through to plain monospace instead of the self-hosted webfont
+// next/font already loaded for the rest of the page. Cached after the first
+// real read since this runs inside a per-node paint callback, not once.
+let cachedHudFont: string | null = null;
+function hudFont(): string {
+  if (cachedHudFont) return cachedHudFont;
+  if (typeof document === 'undefined') return "'JetBrains Mono', monospace";
+  cachedHudFont = getComputedStyle(document.documentElement).getPropertyValue('--font-hud').trim()
+    || "'JetBrains Mono', monospace";
+  return cachedHudFont;
+}
+
 // ── TYPES ──
 
 interface EntityNode {
@@ -158,7 +173,7 @@ function EntityGraphPanel({ entity, onClose }: Props) {
     // Clean label rendering
     const fontSize = Math.max(10 / globalScale, 3);
     if (fontSize > 3.5 || isSelected) {
-      ctx.font = `${isSelected ? 'bold ' : ''}${fontSize}px 'JetBrains Mono', monospace`;
+      ctx.font = `${isSelected ? 'bold ' : ''}${fontSize}px ${hudFont()}`;
       ctx.fillStyle = isSelected ? '#fff' : `${color}cc`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       // Black background for text readability
@@ -182,7 +197,7 @@ function EntityGraphPanel({ entity, onClose }: Props) {
     
     const fs = Math.max(8 / globalScale, 2);
     if (fs > 3) {
-      ctx.font = `${fs}px 'JetBrains Mono', monospace`; 
+      ctx.font = `${fs}px ${hudFont()}`;
       ctx.fillStyle = 'rgba(212,175,55,0.4)';
       ctx.textAlign = 'center'; ctx.fillText(link.label || '', (s.x + t.x) / 2, (s.y + t.y) / 2);
     }

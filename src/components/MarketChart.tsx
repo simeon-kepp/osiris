@@ -71,6 +71,17 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // lightweight-charts draws its own text onto a <canvas>, so it never
+    // sees the page's CSS cascade -- a literal "'JetBrains Mono'" string
+    // here only works if that font happens to be installed on the visitor's
+    // OS, and silently falls through to Courier New/monospace on every
+    // machine where it isn't. The self-hosted webfont next/font already
+    // loaded for the rest of the page is sitting in --font-hud on <html>;
+    // reading it at runtime and handing the resolved stack to the chart is
+    // what actually makes this text match everything else on screen.
+    const hudFont = getComputedStyle(document.documentElement).getPropertyValue('--font-hud').trim()
+      || "'JetBrains Mono', 'Courier New', monospace";
+
     const chart = createChart(containerRef.current, {
       // The library measures the container itself. Sizing the canvases by
       // hand left their bitmaps at the 300x150 default — laid out, but never
@@ -79,7 +90,7 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
       layout: {
         background: { color: 'transparent' },
         textColor: '#78909C',
-        fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+        fontFamily: hudFont,
         fontSize: 9,
       },
       grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
