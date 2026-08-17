@@ -369,13 +369,13 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
             {/* The 3D embedding cloud is unreadable at 520px -- labels overlap into
                 a smear. Full width is the difference between a decoration and a tool. */}
             <button onClick={() => setExpanded(e => !e)}
-              title={expanded ? 'Collapse to side panel' : 'Expand to full screen'}
+              title={expanded ? tr('reasoning.collapse') : tr('reasoning.expand')}
               className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
               {expanded
                 ? <Minimize2 className="w-4 h-4 text-[var(--text-muted)]" />
                 : <Maximize2 className="w-4 h-4 text-[var(--text-muted)]" />}
             </button>
-            <button onClick={onClose} title="Close" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
+            <button onClick={onClose} title={tr('reasoning.close')} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
               <X className="w-4 h-4 text-[var(--text-muted)]" />
             </button>
           </div>
@@ -385,15 +385,15 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
           <div className="flex rounded-md border border-white/10 bg-black/30 p-0.5">
             {(['2d', '3d', 'network'] as const).map(m => (
               <button key={m} type="button" onClick={() => setMode(m)}
-                title={m === 'network' ? 'The entire graph, not one node\'s neighbourhood' : undefined}
+                title={m === 'network' ? tr('reasoning.mode.all.title') : undefined}
                 className={`rounded px-2 py-1 text-[9px] font-bold uppercase tracking-wider transition ${mode === m ? 'bg-[var(--cyan-primary)]/20 text-[var(--cyan-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>
-                {m === 'network' ? 'ALL' : m}
+                {m === 'network' ? tr('reasoning.mode.all') : m}
               </button>
             ))}
           </div>
           <div className="relative flex-1 min-w-0">
             <input value={input} onChange={e => setInput(e.target.value)} autoComplete="off"
-              placeholder={nodeTotal ? `Search ${nodeTotal} nodes...` : 'Search a node...'}
+              placeholder={nodeTotal ? tr('reasoning.search.placeholder', String(nodeTotal)) : tr('reasoning.search.placeholder.empty')}
               className="w-full rounded-md border border-white/10 bg-black/30 px-2.5 py-1.5 text-[11px] font-mono text-[var(--text-primary)] outline-none focus:border-[var(--cyan-primary)]/60" />
             {suggestions.length > 0 && (
               <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-md border border-white/10 bg-[#0a0a0a] shadow-xl">
@@ -424,7 +424,7 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
                   ? <span className="text-[11px] text-[var(--alert-red)]">{graphError}</span>
                   : <span className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Loading the whole network... the first request trains the model, which takes a moment.
+                      {tr('reasoning.network.loading')}
                     </span>}
               </div>
             )
@@ -433,13 +433,13 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
             <canvas ref={canvasRef} className="absolute inset-0 h-full w-full cursor-grab active:cursor-grabbing touch-none" />
             {loading && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 text-[11px] text-[var(--text-muted)]">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading graph embeddings...
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> {tr('reasoning.embeddings.loading')}
               </div>
             )}
             {error && <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-[11px] text-[var(--alert-red)]">{error}</div>}
             {ok && (
               <div className="pointer-events-none absolute bottom-2 left-3 text-[9px] text-[var(--text-muted)]/70 font-mono">
-                drag = rotate · scroll = zoom · double-click = reset · click a node to jump
+                {tr('reasoning.network.hint')}
               </div>
             )}
           </div>
@@ -454,12 +454,12 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
                as if all of it were observed. */
             <div className="px-1">
               <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                {graph.node_count} nodes · {graph.edge_count} edges · position = PCA of the learned embedding
+                {tr('reasoning.network.stats', String(graph.node_count), String(graph.edge_count))}
               </div>
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {Object.entries(graph.provenance).map(([p, count]) => (
                   <button key={p} onClick={() => toggleProv(p)}
-                    title={p === 'OBSERVED' ? 'Came out of an audit finding' : 'Computed from a real field, not observed'}
+                    title={p === 'OBSERVED' ? tr('reasoning.provenance.observed.title') : tr('reasoning.provenance.derived.title')}
                     className={`rounded px-2 py-1 text-[9px] font-mono tracking-wide border transition ${
                       visibleProv.has(p)
                         ? 'border-[var(--cyan-primary)]/50 text-[var(--cyan-primary)] bg-[var(--cyan-primary)]/10'
@@ -480,8 +480,12 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
                   return (
                     <button key={t} onClick={() => toggleType(t)}
                       title={uncoloured
+                        // Deliberately left as an English engineering hint, not a
+                        // translation key: it names a source file (TYPE_COLOR in
+                        // NetworkView.tsx) for whoever fixes the colour table, not
+                        // a fact about the graph a non-technical reader needs.
                         ? `${t} has no colour assigned and is drawing grey — add it to TYPE_COLOR in NetworkView.tsx`
-                        : on ? `Hide ${t}` : `Show ${t}`}
+                        : on ? tr('reasoning.type.hide', t) : tr('reasoning.type.show', t)}
                       className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[9px] font-mono transition ${
                         on ? 'text-[var(--text-secondary)] hover:bg-white/5'
                            : 'text-[var(--text-muted)] line-through opacity-50'}`}>
@@ -490,28 +494,28 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
                                      border: on ? 'none' : `1px solid ${TYPE_SWATCH[t] || '#80808c'}` }} />
                       {t}
                       {uncoloured && (
-                        <span className="text-[var(--alert-red)]" title="no colour assigned">*</span>
+                        <span className="text-[var(--alert-red)]" title={tr('reasoning.uncoloured.marker.title')}>*</span>
                       )}
                     </button>
                   );
                 })}
                 {graph.types.some(t => !TYPE_SWATCH[t]) && (
                   <span className="text-[9px] font-mono text-[var(--alert-red)]"
-                        title="These node types render grey because NetworkView has no colour for them">
-                    * uncoloured
+                        title={tr('reasoning.uncoloured.title')}>
+                    {tr('reasoning.uncoloured')}
                   </span>
                 )}
                 {hiddenTypes.size > 0 && (
                   <button onClick={() => setHiddenTypes(new Set())}
                     className="rounded px-1.5 py-0.5 text-[9px] font-mono text-[var(--cyan-primary)] hover:bg-[var(--cyan-primary)]/10">
-                    show all
+                    {tr('reasoning.showAll')}
                   </button>
                 )}
               </div>
             </div>
           ) : (<>
           <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5 px-1">
-            {ok ? `${data!.neighbors.length} nearest neighbours` : 'Neighbours'}
+            {ok ? tr('reasoning.neighbours.count', String(data!.neighbors.length)) : tr('reasoning.neighbours.fallback')}
           </div>
           {ok && data!.neighbors.map((n, i) => (
             <button key={i} onClick={() => { setInput(n.word); fetchNode(n.word); }}

@@ -95,13 +95,22 @@ describe('dictionary parity', () => {
   // locales -- distinguishable from a real German translation, which by
   // construction differs from its English counterpart at least once
   // somewhere in the sentence for every key in this dictionary.
-  const FN_KEYS: string[] = ['reasoning.evidence.title', 'evidence.degree'];
+  const FN_KEYS: string[] = [
+    'reasoning.evidence.title', 'evidence.degree', 'reasoning.search.placeholder',
+    'reasoning.network.stats', 'reasoning.type.hide', 'reasoning.type.show',
+    'reasoning.neighbours.count',
+  ];
+  // Two placeholders covers every function-valued key so far, including the
+  // one two-argument entry (reasoning.network.stats) -- a function declared
+  // with fewer parameters just ignores the extra one, so this stays correct
+  // even for the single-argument keys.
+  const FN_ARGS = ['X', 'Y'];
 
   it('every key resolves to a non-empty string in both locales', () => {
     for (const key of ALL_TRANSLATION_KEYS) {
-      const arg = FN_KEYS.includes(key) ? 'X' : undefined;
-      const en = arg ? translate('en', key, arg) : translate('en', key);
-      const de = arg ? translate('de', key, arg) : translate('de', key);
+      const args = FN_KEYS.includes(key) ? FN_ARGS : [];
+      const en = translate('en', key, ...args);
+      const de = translate('de', key, ...args);
       expect(en, `en:${key}`).toBeTruthy();
       expect(de, `de:${key}`).toBeTruthy();
     }
@@ -129,9 +138,9 @@ describe('dictionary parity', () => {
     const untranslated: string[] = [];
     for (const key of ALL_TRANSLATION_KEYS) {
       if (INTENTIONALLY_IDENTICAL.has(key)) continue;
-      const arg = FN_KEYS.includes(key) ? 'X' : undefined;
-      const en = arg ? translate('en', key, arg) : translate('en', key);
-      const de = arg ? translate('de', key, arg) : translate('de', key);
+      const args = FN_KEYS.includes(key) ? FN_ARGS : [];
+      const en = translate('en', key, ...args);
+      const de = translate('de', key, ...args);
       if (en === de) untranslated.push(key);
     }
     expect(untranslated, `keys with no distinct German text: ${untranslated.join(', ')}`)
