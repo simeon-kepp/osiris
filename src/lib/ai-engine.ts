@@ -304,10 +304,24 @@ const NIM_BASE = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.co
 // PROBED, NOT ASSUMED. /v1/models lists 102 handles but listing is not
 // entitlement: nvidia/llama-3.1-nemotron-70b-instruct, mistralai/mistral-large-2
 // and mistralai/mistral-7b-instruct-v0.3 are all in the catalogue and all
-// return 404 for this account. meta/llama-3.1-70b-instruct answers in ~0.7s.
+// return 404 for this account.
+//
+// meta/llama-3.1-70b-instruct (the previous default, answered in ~0.7s on
+// 2026-08-16) was swapped out 2026-08-17 - live feedback was that the
+// analyst felt slow to answer ("das fette nemotron da braucht zu lange zum
+// nachdenken"). It was never actually a Nemotron handle in this file, but a
+// real one exists in the catalogue that reproduces exactly that symptom:
+// nvidia/llama-3.1-nemotron-nano-8b-v1 timed out at 15s on a two-token
+// "Say OK" probe -- a genuine reasoning model that burns hidden
+// chain-of-thought tokens before answering, unlike the plain -instruct
+// models here. Re-probed four small candidates rather than guess:
+// meta/llama-3.2-3b-instruct timed out (15s, no response), that same
+// nemotron-nano-8b timed out, meta/llama-3.1-8b-instruct answered in 579ms,
+// nvidia/nemotron-mini-4b-instruct in 484ms. Picked the Llama one to stay
+// in the same model family as the previous default, ~9x smaller.
 // Override with NVIDIA_MODEL; a wrong handle fails loudly with a 404 naming
 // the provider rather than silently degrading.
-const NIM_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+const NIM_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 /** OpenAI-compatible chat completions. Covers NVIDIA NIM and anything speaking
