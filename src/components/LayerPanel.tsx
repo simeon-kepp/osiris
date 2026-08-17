@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plane, Satellite, Sun, AlertTriangle, Camera,
   CloudLightning, Ship, Network, Database, Ghost,
-  Flame, Tv, Radio, Mountain, Anchor, Megaphone, TrainFront
+  Flame, Tv, Radio, Mountain, Anchor, TrainFront,
+  Cable, ShieldAlert
 } from 'lucide-react';
 
 interface LayerPanelProps {
@@ -46,11 +47,14 @@ interface LayerGroupDef {
 
 const LAYER_GROUPS: LayerGroupDef[] = [
   {
-    label: 'SDK',
-    fullLabel: 'DINGIR SDK',
-    icon: Network,
+    // Was "SDK" -- meant nothing to anyone reading it cold, and the single
+    // layer underneath it is submarine cable ROUTES, not "SDK" of any kind.
+    // Named for what it actually shows.
+    label: 'CABLES',
+    fullLabel: 'SUBMARINE CABLES',
+    icon: Cable,
     layers: [
-      { key: 'sdk_sea', label: 'Maritime Lines', dataKey: 'sdk_entities' },
+      { key: 'sdk_sea', label: 'Cable Routes', dataKey: 'sdk_entities' },
     ],
   },
   {
@@ -110,30 +114,31 @@ const LAYER_GROUPS: LayerGroupDef[] = [
     ],
   },
   {
+    // Was three groups (THREAT / NETWORK / NETINTEL) with no clear line
+    // between them -- Global Incidents and GDELT Events are both GDELT-
+    // sourced world-event data (different endpoints, same domain to a
+    // reader), split across two groups for no reason a user could see.
+    // This is the physical/world-event half; CYBER below is the other.
     label: 'THREAT',
-    fullLabel: 'THREATS & INTEL',
+    fullLabel: 'THREATS & INCIDENTS',
     icon: AlertTriangle,
     layers: [
       { key: 'infrastructure', label: 'Nuclear Facilities', dataKey: 'infrastructure' },
       { key: 'global_incidents', label: 'Global Incidents', dataKey: 'gdelt' },
+      { key: 'gdelt_events', label: 'GDELT Events', dataKey: 'gdelt_events' },
       { key: 'gps_jamming', label: 'GPS Jamming', dataKey: 'gps_jamming' },
     ],
   },
   {
-    label: 'NETWORK',
-    fullLabel: 'NETWORK INTEL',
-    icon: Network,
+    // The other half of the old THREAT/NETWORK/NETINTEL split: everything
+    // here is a network/cyber signal, not a physical-world one. ShieldAlert
+    // instead of reusing Network's icon, which CABLES also used to share.
+    label: 'CYBER',
+    fullLabel: 'CYBER THREATS',
+    icon: ShieldAlert,
     layers: [
       { key: 'malware', label: 'Live Malware', dataKey: 'malware_threats' },
       { key: 'cyber_attacks', label: 'Live Attacks', dataKey: 'cyber_attacks' },
-    ],
-  },
-  {
-    label: 'NETINTEL',
-    fullLabel: 'NET & EVENT INTEL',
-    icon: Megaphone,
-    layers: [
-      { key: 'gdelt_events', label: 'GDELT Events', dataKey: 'gdelt_events' },
       { key: 'cf_outages', label: 'Internet Outages', dataKey: 'cf_outages', requires: 'cloudflare' },
       { key: 'cf_attacks', label: 'Attack Origins', dataKey: 'cf_attack_origins', requires: 'cloudflare' },
     ],
