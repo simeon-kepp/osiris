@@ -20,7 +20,6 @@ import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import GlobalStatusBar from '@/components/GlobalStatusBar';
 import LiveAlerts from '@/components/LiveAlerts';
 import WorldRemote from '@/components/WorldRemote';
-import ArcGISPanel from '@/components/ArcGISPanel';
 import { LAYER_STORAGE_KEY, LAYER_VERSION_STORAGE_KEY, CURRENT_LAYERS_VERSION, applyLayers, applyStoredLayers, pickSavedLayers, serializeLayers } from '@/lib/layerState';
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
@@ -288,7 +287,6 @@ export default function Dashboard() {
     return () => navigator.geolocation.clearWatch(id);
   }, [navSession]);
   const [showRemote, setShowRemote] = useState(false);
-  const [showArcGIS, setShowArcGIS] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [arcgisRestoring, setArcgisRestoring] = useState(false);
   // Read inside the viewport effect. Depending on arcgisLayers directly would
@@ -1572,47 +1570,9 @@ export default function Dashboard() {
         {/* Separator */}
         <div className="w-4 h-px bg-white/10 mx-auto" />
 
-        {/* ── ARCGIS INTEL ── */}
-        <div className="relative group">
-          <button onClick={() => { setShowArcGIS(!showArcGIS); setShowRemote(false); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showArcGIS ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.arcgis.title')}>
-            <Database className={`w-4 h-4 ${showArcGIS ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
-            {arcgisLayers.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-[var(--gold-primary)] text-black text-[7px] font-mono font-bold leading-none px-0.5">{arcgisLayers.length}</span>}
-          </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.arcgis')}</span>
-          <AnimatePresence>
-            {showArcGIS && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-[340px] flex flex-col pointer-events-none">
-                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
-                  <div className="glass-panel p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
-                  <ArcGISPanel
-                    onImportLayer={(layer) => setArcgisLayers(prev => [
-                      ...prev.filter(l => l.id !== layer.id),
-                      // Geometry from the import is kept for the first paint;
-                      // the viewport effect replaces it on the next map move.
-                      // No byte budget any more -- a viewport-scoped layer is
-                      // at most 2,000 features of what is on screen, however
-                      // large the dataset behind it is.
-                      { ...layer, color: layer.color || '#D4AF37', visible: true, opacity: layer.opacity ?? 0.8 },
-                    ])}
-                    onRemoveLayer={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))}
-                    onUpdateLayer={(id, updates) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l))}
-                    importedLayers={arcgisLayers}
-                    mapBounds={mapCenter?.bounds || null}
-                  />
-                </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-
-        {/* Separator */}
-        <div className="w-4 h-px bg-white/10 mx-auto" />
-
         {/* ── WORLD REMOTE ── */}
         <div className="relative group">
-          <button onClick={() => { setShowRemote(!showRemote); setShowArcGIS(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); setShowDesktopSearch(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showRemote ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.remote.title')}>
+          <button onClick={() => { setShowRemote(!showRemote); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); setShowDesktopSearch(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showRemote ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.remote.title')}>
             <Bluetooth className={`w-4 h-4 ${showRemote ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.remote')}</span>
