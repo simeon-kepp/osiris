@@ -445,10 +445,31 @@ export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onP
       drag.current = { on: true, x: e.clientX, y: e.clientY, moved: false };
       cv.setPointerCapture(e.pointerId);
     };
+    // pickAt() is an O(n) full-node scan (rotation + perspective divide +
+    // distance check per node) -- at 28,730 nodes that is real, measurable
+    // CPU work, and pointermove fires far more often than once per frame on
+    // most mice/trackpads. Calling it synchronously on every raw event means
+    // the browser can be asked to do several full scans per rendered frame,
+    // all on the main thread that also has to run React's state update and
+    // the WebGL draw call -- that pile-up, not the draw call itself (which
+    // stays two calls regardless of zoom, see the buffers comment above), is
+    // what reads as "gets slower the more I interact with it". Coalesced to
+    // at most one pick per animation frame: extra pointermove events between
+    // frames just overwrite the pending coordinates rather than each
+    // triggering their own scan.
+    let pendingPick: { x: number; y: number } | null = null;
+    let pickRaf = 0;
+    const flushPick = () => {
+      pickRaf = 0;
+      if (!pendingPick) return;
+      const { x, y } = pendingPick;
+      pendingPick = null;
+      setHovered(pickAt(x, y));
+    };
     const onMove = (e: PointerEvent) => {
       if (!drag.current.on) {
-        const hit = pickAt(e.clientX, e.clientY);
-        setHovered(hit);
+        pendingPick = { x: e.clientX, y: e.clientY };
+        if (!pickRaf) pickRaf = requestAnimationFrame(flushPick);
         return;
       }
       const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y;
@@ -485,6 +506,7 @@ export default function NetworkView({ graph, visibleProvenance, hiddenTypes, onP
     cv.addEventListener('wheel', onWheel, { passive: false });
     cv.addEventListener('dblclick', onDbl);
     return () => {
+      if (pickRaf) cancelAnimationFrame(pickRaf);
       cv.removeEventListener('pointerdown', onDown);
       cv.removeEventListener('pointermove', onMove);
       cv.removeEventListener('pointerup', onUp);
