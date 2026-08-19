@@ -165,6 +165,19 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
     return { up, down: allQuotes.length - up, total: allQuotes.length, top: sorted[0], worst: sorted[sorted.length - 1] };
   }, [allQuotes]);
 
+  /** Top 3 movers per section, for the fullscreen overview grid -- the same
+   *  data every tab already has, just previewed before it's clicked into. */
+  const sectionOverviews = useMemo(
+    () => SECTIONS.map(s => ({
+      section: s,
+      top: Object.values<Quote>(markets[s.key] || {})
+        .filter(q => Number.isFinite(q?.change_percent))
+        .sort((a, b) => Math.abs(b.change_percent) - Math.abs(a.change_percent))
+        .slice(0, 3),
+    })),
+    [markets],
+  );
+
   const rows = useMemo<Quote[]>(() => {
     const list = Object.values<Quote>(markets[activeSection] || {});
     return sortByMove ? [...list].sort((a, b) => b.change_percent - a.change_percent) : list;
@@ -220,6 +233,59 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
   );
 
   const aiBlock = <AiOverview mode="markets" payload={{ markets, spaceWeather }} accent="#D4AF37" />;
+
+  /** Every instrument, one continuous strip -- the Aladdin/terminal-style
+   *  "everything moving right now" bar across the top of the fullscreen
+   *  view. Same data as the tabbed list below, just all of it at once and
+   *  without a click required to see it. */
+  const tickerStripBlock = allQuotes.length > 0 && (
+    <div className="flex items-center gap-4 overflow-x-auto styled-scrollbar shrink-0 py-1 border-b border-[var(--border-primary)]">
+      {allQuotes.map(q => (
+        <div key={q.symbol || q.name} className="flex items-center gap-1.5 shrink-0 whitespace-nowrap text-[10px] font-mono">
+          <span className="text-[var(--text-secondary)]">{q.symbol || q.name}</span>
+          <span className="text-[var(--text-primary)] font-bold tabular-nums">{formatPrice(q.price)}</span>
+          <span className="font-bold tabular-nums" style={{ color: q.up ? GREEN : RED }}>
+            {q.change_percent > 0 ? '+' : ''}{q.change_percent?.toFixed(2)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+
+  /** Fills the fullscreen left column when no chart is open -- a preview
+   *  grid, one card per section, so the space isn't empty until a ticker is
+   *  clicked. Clicking a card's mover opens straight to its chart, same as
+   *  clicking it in the full list would. */
+  const sectionOverviewGrid = (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+      {sectionOverviews.map(({ section, top }) => {
+        const Icon = section.icon;
+        return (
+          <div key={section.key} className="p-2 rounded-lg border border-[var(--border-primary)] bg-white/[0.02]">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Icon className="w-3 h-3 text-[var(--gold-primary)]" />
+              <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)]">{section.label}</span>
+            </div>
+            {top.length > 0 ? (
+              <div className="space-y-1">
+                {top.map(q => (
+                  <button key={q.symbol || q.name} onClick={() => { setActiveSection(section.key); setSelected({ symbol: q.symbol, name: q.name }); }}
+                    className="w-full flex items-center justify-between text-[9px] font-mono hover:bg-[var(--hover-accent)] rounded px-1 -mx-1 py-0.5 transition-colors">
+                    <span className="text-[var(--text-secondary)] truncate">{q.name}</span>
+                    <span className="font-bold tabular-nums shrink-0 ml-2" style={{ color: q.up ? GREEN : RED }}>
+                      {q.change_percent > 0 ? '+' : ''}{q.change_percent?.toFixed(2)}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[8px] font-mono text-[var(--text-muted)] py-1">no data</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   const scmBlock = markets.scm_alerts && markets.scm_alerts.length > 0 && (
     <div className="space-y-1">
@@ -337,26 +403,34 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
             className={maximized ? 'flex-1 min-h-0 flex flex-col' : ''}
           >
             {maximized ? (
-              /* Fullscreen: context and chart on the left, the list beside it.
-                 Each column scrolls on its own, so a long list never pushes the
-                 chart off-screen and the panel itself never overflows. Below
-                 lg the columns stack and the whole body scrolls instead. */
-              <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-3 overflow-y-auto lg:overflow-hidden styled-scrollbar">
-                <div className="min-h-0 lg:overflow-y-auto styled-scrollbar space-y-2 lg:pr-1">
-                  {chartBlock}
-                  {breadthBlock}
-                  {scmBlock}
-                  {spaceBlock}
-                  {aiBlock}
-                </div>
-
-                <div className="min-h-0 flex flex-col lg:border-l lg:border-[var(--border-primary)] lg:pl-3">
-                  <div className="shrink-0 space-y-2">
-                    {tabsBar}
-                    {listHeader}
+              /* Fullscreen: a ticker strip across the top (every instrument,
+                 Aladdin/terminal-style), then context on the left and the
+                 full list beside it. Each column scrolls on its own, so a
+                 long list never pushes the chart off-screen and the panel
+                 itself never overflows. Below lg the columns stack and the
+                 whole body scrolls instead. Left column shows the section
+                 overview grid until a ticker is opened, so the space is
+                 never just empty -- a chart replaces it, not adds to it. */
+              <div className="flex-1 min-h-0 flex flex-col gap-2">
+                {tickerStripBlock}
+                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-3 overflow-y-auto lg:overflow-hidden styled-scrollbar">
+                  <div className="min-h-0 lg:overflow-y-auto styled-scrollbar space-y-2 lg:pr-1">
+                    {chartBlock}
+                    {!selected && sectionOverviewGrid}
+                    {breadthBlock}
+                    {scmBlock}
+                    {spaceBlock}
+                    {aiBlock}
                   </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar space-y-0.5">
-                    {listRows}
+
+                  <div className="min-h-0 flex flex-col lg:border-l lg:border-[var(--border-primary)] lg:pl-3">
+                    <div className="shrink-0 space-y-2">
+                      {tabsBar}
+                      {listHeader}
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar space-y-0.5">
+                      {listRows}
+                    </div>
                   </div>
                 </div>
               </div>
