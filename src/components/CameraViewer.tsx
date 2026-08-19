@@ -323,10 +323,14 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
                     <ExternalLink className="w-2.5 h-2.5" /> RAW FEED
                   </a>
                 )}
-                <a href={`https://www.google.com/maps/@${camera.lat},${camera.lng},17z`} target="_blank" rel="noopener noreferrer"
+                {/* Was an external Google Maps link -- flew the operator off the
+                    platform to look at a point DINGIR's own map already shows.
+                    Reuses the same onLocate the header's pin button already
+                    calls, so both controls fly to the SAME in-house map. */}
+                <button onClick={() => onLocate?.(camera.lat, camera.lng)}
                   className="flex items-center gap-1.5 px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors text-[8px] font-mono text-[var(--cyan-primary)] tracking-widest">
                   <MapPin className="w-2.5 h-2.5" /> MAP TARGET
-                </a>
+                </button>
               </div>
             </div>
             {/* Animated data stream bar */}
