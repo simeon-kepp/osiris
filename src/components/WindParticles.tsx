@@ -65,9 +65,23 @@ export default function WindParticles({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gridRef = useRef<WindGrid | null>(null);
-  const particlesRef = useRef<Array<{ lng: number; lat: number; age: number; sx: number; sy: number }>>([]);
+  // A particle remembers where it WAS in lng/lat, not in pixels.
+  //
+  // THIS IS THE FIX FOR THE DRAG DESYNC. Screen coordinates are only meaningful
+  // under the projection that produced them, so the previous version had to
+  // throw them away on every `move` frame to avoid warp-lines -- which meant no
+  // wind was drawn at all mid-gesture, while the trails ALREADY painted on the
+  // canvas stayed nailed to the screen as the globe slid underneath them. On
+  // release the stale streaks were still fading while fresh ones drew from the
+  // new projection, which is the scramble that got reported.
+  //
+  // A geographic previous position survives pan, zoom, rotate and pitch: both
+  // endpoints reproject together, so the segment between them is correct in
+  // every frame and never needs invalidating.
+  const particlesRef = useRef<Array<{ lng: number; lat: number; age: number; plng: number; plat: number }>>([]);
   const rafRef = useRef<number | null>(null);
   const fetchedBboxRef = useRef<string | null>(null);
+  const movingRef = useRef(false);
 
   // Bilinear-interpolate u/v at an arbitrary lng/lat from the sampled grid.
   // Outside the grid's bbox returns null so the caller can respawn instead
@@ -92,13 +106,13 @@ export default function WindParticles({
     return [u, v];
   };
 
-  const respawn = (p: { lng: number; lat: number; age: number; sx: number; sy: number }) => {
+  const respawn = (p: { lng: number; lat: number; age: number; plng: number; plat: number }) => {
     const g = gridRef.current;
     if (!g) return;
     p.lng = g.bbox.west + Math.random() * (g.bbox.east - g.bbox.west);
     p.lat = g.bbox.south + Math.random() * (g.bbox.north - g.bbox.south);
     p.age = Math.floor(Math.random() * PARTICLE_MAX_AGE);
-    p.sx = NaN; p.sy = NaN; // no previous screen position yet -- skip the first segment
+    p.plng = NaN; p.plat = NaN; // no previous position yet -- skip the first segment
   };
 
   // Fetch the wind grid for the current viewport, debounced on move, same
@@ -154,26 +168,30 @@ export default function WindParticles({
     ctx.scale(dpr, dpr);
 
     if (particlesRef.current.length !== PARTICLE_COUNT) {
-      particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => ({ lng: 0, lat: 0, age: 0, sx: NaN, sy: NaN }));
+      particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => ({ lng: 0, lat: 0, age: 0, plng: NaN, plat: NaN }));
       particlesRef.current.forEach(respawn);
     }
 
-    // The bug a zoom/pan actually exposed: a particle's screen position
-    // (sx, sy) is only meaningful under the projection it was recorded
-    // under. Reproject an unchanged lng/lat under a NEW zoom/pan and the
-    // "previous" point can land anywhere on screen relative to the new
-    // point -- every one of 2,500 particles drawing a line from its old
-    // (now-meaningless) screen spot to its reprojected one, all in the same
-    // frame, is exactly the radial full-screen burst this produced, and
-    // redoing that on every zoom step is what stressed the browser. `move`
-    // fires continuously through a drag/zoom gesture, not just at its end,
-    // so this drops every particle's remembered segment before that frame
-    // renders -- the next frame just starts a fresh trail from wherever the
-    // particle reprojects to now, no warp-line possible.
-    const invalidateScreenPositions = () => {
-      for (const p of particlesRef.current) { p.sx = NaN; p.sy = NaN; }
+    // Particle state no longer needs invalidating on move -- it is geographic,
+    // so it stays true under any projection change. What DOES need clearing is
+    // the canvas: the streamline look comes from letting previous frames fade
+    // rather than erasing them, and those pixels are screen-fixed. Left alone
+    // through a drag they hang in place while the globe moves under them, which
+    // is precisely the "wind stays, earth moves" that was reported.
+    //
+    // So: wipe the accumulated trail the moment the view changes, and keep
+    // drawing live. During the gesture only one segment per particle survives
+    // per frame, so the field reads as sparse streaks rather than full
+    // streamlines -- correct, if thinner. Full trails rebuild as soon as the
+    // view settles.
+    const onMove = () => {
+      movingRef.current = true;
+      const c = canvasRef.current;
+      if (c) c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
     };
-    map.on('move', invalidateScreenPositions);
+    const onSettle = () => { movingRef.current = false; };
+    map.on('move', onMove);
+    map.on('moveend', onSettle);
 
     const render = () => {
       const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -201,17 +219,25 @@ export default function WindParticles({
             respawn(p);
             continue;
           }
-          if (Number.isFinite(p.sx) && Number.isFinite(p.sy)) {
+          if (Number.isFinite(p.plng) && Number.isFinite(p.plat)) {
+            // BOTH endpoints projected under the CURRENT view, every frame.
+            // That is what makes the segment stay glued to the ground through
+            // a pan instead of to the screen.
+            const prev = map.project([p.plng, p.plat]);
             const speed = Math.hypot(u, v);
             ctx.strokeStyle = speedColor(speed);
-            ctx.globalAlpha = 0.75;
-            ctx.lineWidth = 1.1;
+            // Mid-gesture there is no accumulated trail behind this segment,
+            // so it carries the whole field on its own and is drawn heavier.
+            // At rest the fade does the work and a lighter stroke keeps the
+            // streamlines from blowing out.
+            ctx.globalAlpha = movingRef.current ? 0.95 : 0.75;
+            ctx.lineWidth = movingRef.current ? 1.6 : 1.1;
             ctx.beginPath();
-            ctx.moveTo(p.sx, p.sy);
+            ctx.moveTo(prev.x, prev.y);
             ctx.lineTo(screen.x, screen.y);
             ctx.stroke();
           }
-          p.sx = screen.x; p.sy = screen.y;
+          p.plng = p.lng; p.plat = p.lat;
         }
       }
       rafRef.current = requestAnimationFrame(render);
@@ -219,7 +245,8 @@ export default function WindParticles({
     rafRef.current = requestAnimationFrame(render);
 
     return () => {
-      map.off('move', invalidateScreenPositions);
+      map.off('move', onMove);
+      map.off('moveend', onSettle);
       ro.disconnect();
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -230,6 +257,12 @@ export default function WindParticles({
   return (
     <canvas ref={canvasRef}
       className="absolute inset-0 pointer-events-none"
-      style={{ mixBlendMode: 'screen' }} />
+      // zIndex 1 puts the field above the map canvas but below popups, which
+      // globals.css raises to 3. Without it this element is simply the later
+      // sibling and paints over everything, so wind streaks ran straight
+      // across intel cards -- and `mixBlendMode: screen` made them brighter
+      // over a dark card than anywhere else, which is the worst possible place
+      // for a decorative layer to be most visible.
+      style={{ mixBlendMode: 'screen', zIndex: 1 }} />
   );
 }

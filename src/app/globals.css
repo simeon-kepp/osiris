@@ -68,8 +68,22 @@
      fallback chain stays visible, and so a missing font degrades to a
      deliberate choice instead of silently to the system sans (which on
      Linux is Roboto -- the bug this replaced). */
-  --font-hud: var(--font-hud-src), 'JetBrains Mono', 'Courier New', monospace;
+  /* HUD is Inter too, deliberately, after this came back three times in live
+     feedback. The HUD look was never carried by the monospace family -- it is
+     the uppercase, the 0.15em tracking and the small sizes doing that work,
+     and all three survive the switch. What monospace was genuinely buying was
+     digits that do not jitter as telemetry ticks, and `font-variant-numeric:
+     tabular-nums` below buys that back without the typewriter texture.
+
+     JetBrains Mono is still loaded and still reachable as --font-code, NOT as
+     --font-mono: Tailwind's `font-mono` utility is mapped to --font-hud in the
+     @theme block below, so naming it --font-mono here would silently fight
+     that mapping. Anything that truly needs character-cell alignment (an ASCII
+     table, a diff, a hex dump) asks for --font-code explicitly, rather than
+     inheriting monospace by accident -- which is how it landed on prose. */
+  --font-hud: var(--font-body-src), 'Inter', -apple-system, sans-serif;
   --font-body: var(--font-body-src), 'Inter', -apple-system, sans-serif;
+  --font-code: var(--font-hud-src), 'JetBrains Mono', 'Courier New', monospace;
 
   /* ── Spacing (responsive) ── */
   --panel-gap: 12px;
@@ -231,6 +245,10 @@ html:has(.docs-root) body {
   font-weight: 700;
   letter-spacing: 0.15em;
   text-transform: uppercase;
+  /* What monospace was actually buying on a HUD: digits of equal width, so a
+     ticking clock or a live entity count does not shift the text beside it.
+     Inter ships tabular figures, so the stability survives the family change. */
+  font-variant-numeric: tabular-nums;
 }
 
 .hud-label {
@@ -315,6 +333,12 @@ html:has(.docs-root) body {
    the popup part of the same type system as the rest of the app. */
 .maplibregl-popup-content { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; font-family: var(--font-body) !important; }
 .maplibregl-popup-close-button { font-family: var(--font-body) !important; }
+/* Popups sit above the wind field (WindParticles.tsx renders at zIndex 1).
+   The popup lives inside the map container, which has no z-index of its own,
+   so it participates in the root stacking context and this actually wins
+   against the canvas that is its later sibling. Below the focus-mode value of
+   10 further down, which still needs to beat this. */
+.maplibregl-popup { z-index: 3; }
 .maplibregl-popup-tip { display: none !important; }
 .maplibregl-ctrl-attrib { display: none !important; }
 .maplibregl-popup-close-button { color: var(--text-muted) !important; font-size: 16px !important; padding: 4px 8px !important; }

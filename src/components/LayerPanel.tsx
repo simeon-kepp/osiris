@@ -6,8 +6,9 @@ import {
   Plane, Satellite, Sun, AlertTriangle, Camera,
   CloudLightning, Ship, Network, Database, Ghost,
   Flame, Tv, Radio, Mountain, Anchor, TrainFront,
-  Cable, ShieldAlert
+  Cable, ShieldAlert, Car,
 } from 'lucide-react';
+import { REGIONS, type RegionId } from '@/lib/regions';
 
 interface LayerPanelProps {
   data: any;
@@ -26,6 +27,11 @@ interface LayerPanelProps {
   arcgisLayers?: Array<{ id: string; title: string; color: string; visible: boolean }>;
   onToggleArcgis?: (id: string) => void;
   onRemoveArcgis?: (id: string) => void;
+  /** Per-layer region scope. Rendering the whole world at once is what makes
+   *  the map stutter and what trips the label detail cap, so each layer can be
+   *  narrowed independently. Absent key means 'global'. */
+  regionScope?: Record<string, RegionId>;
+  onRegionScope?: (layerKey: string, region: RegionId) => void;
 }
 
 interface LayerDef {
@@ -74,6 +80,14 @@ const LAYER_GROUPS: LayerGroupDef[] = [
     icon: Ship,
     layers: [
       { key: 'maritime', label: 'Maritime / Naval', dataKey: 'maritime_ships,maritime_ports,maritime_chokepoints' },
+    ],
+  },
+  {
+    label: 'ROAD',
+    fullLabel: 'ROAD TRAFFIC',
+    icon: Car,
+    layers: [
+      { key: 'traffic', label: 'Incidents & Closures', dataKey: 'traffic_incidents' },
     ],
   },
   {
@@ -185,7 +199,7 @@ function ToggleSwitch({ active, onClick }: { active: boolean; onClick: () => voi
   );
 }
 
-function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {}, arcgisLayers, onToggleArcgis, onRemoveArcgis }: LayerPanelProps) {
+function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {}, arcgisLayers, onToggleArcgis, onRemoveArcgis, regionScope, onRegionScope }: LayerPanelProps) {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
   const toggle = (key: string) => setActiveLayers((prev: any) => ({ ...prev, [key]: !prev[key] }));
@@ -403,6 +417,31 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
                               <span className="text-[9px] font-mono tabular-nums text-white/20">
                                 {count.toLocaleString()}
                               </span>
+                            )}
+                            {/* Region scope. stopPropagation on both the click
+                                and the change: the whole row is a toggle, so
+                                without it choosing a region would also switch
+                                the layer off, which is the opposite of what
+                                someone narrowing a busy layer wants. Only
+                                shown while the layer is on, because scoping
+                                something invisible is noise. */}
+                            {isLayerActive && onRegionScope && (
+                              <select
+                                value={regionScope?.[layer.key] ?? 'global'}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e => {
+                                  e.stopPropagation();
+                                  onRegionScope(layer.key, e.target.value as RegionId);
+                                }}
+                                title="Limit what this layer renders"
+                                className="text-[9px] tabular-nums bg-transparent border border-white/10 rounded px-1 py-[1px] text-white/45 hover:text-white/80 hover:border-white/25 cursor-pointer outline-none"
+                              >
+                                {REGIONS.map(r => (
+                                  <option key={r.id} value={r.id} className="bg-black text-white">
+                                    {r.label}
+                                  </option>
+                                ))}
+                              </select>
                             )}
                           </div>
                         );

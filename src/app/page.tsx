@@ -3,7 +3,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, MessageSquare, LogIn, LogOut } from 'lucide-react';
+import type { RegionId } from '@/lib/regions';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, Telescope, MessageSquare, LogIn, LogOut } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -28,6 +29,7 @@ const OsintPanel = dynamic(() => import('@/components/OsintPanel'));
 const EntityGraphPanel = dynamic(() => import('@/components/EntityGraphPanel'));
 const ReasoningPanel = dynamic(() => import('@/components/ReasoningPanel'));
 const ReasoningFeed = dynamic(() => import('@/components/ReasoningFeed'));
+const PredictionPanel = dynamic(() => import('@/components/PredictionPanel'));
 const AiAnalyst = dynamic(() => import('@/components/AiAnalyst'));
 const EvidencePanel = dynamic(() => import('@/components/EvidencePanel'));
 import { useLocale } from '@/lib/LocaleProvider';
@@ -176,6 +178,17 @@ export default function Dashboard() {
   const [showEntityGraph, setShowEntityGraph] = useState(false);
   const [showReasoningPanel, setShowReasoningPanel] = useState(false);
   const [showReasoningFeed, setShowReasoningFeed] = useState(false);
+  const [showPredictions, setShowPredictions] = useState(false);
+  // ── the right-hand rail ────────────────────────────────────────────────────
+  // Rail tools (forecast, feed) stack outward from the right edge; the whitebox
+  // panel opens beside the stack rather than on top of it. Each tool REPORTS its
+  // own width here instead of the neighbours guessing it -- the previous version
+  // hardcoded `xl:right-[520px]` in the feed, which silently became wrong the
+  // moment the whitebox expanded to `w-screen`, and the feed disappeared behind
+  // it. A reported number cannot go stale that way.
+  const [predWidth, setPredWidth] = useState(0);
+  const [feedWidth, setFeedWidth] = useState(0);
+  const railWidth = predWidth + feedWidth;
   // Set when a feed entry is clicked, so the reasoning panel opens on that node
   // instead of the default. The feed says what DINGIR noticed; the panel is
   // where you go to check whether it is right.
@@ -355,6 +368,30 @@ export default function Dashboard() {
           ({ id, title, url, color, visible, opacity }))));
     } catch { /* quota or private mode; the session still works */ }
   }, [arcgisLayers]);
+  // Per-layer region scope. Several layers load the entire world -- every
+  // tracked aircraft, every satellite, every ship -- and rendering all of it
+  // is what makes the map stutter and trips the label detail cap. This bounds
+  // what is RENDERED; the fetch is unchanged except for road traffic, which is
+  // genuinely viewport-bound because TomTom rejects a continental bbox.
+  // Persisted so a narrowed view survives a reload, since re-narrowing five
+  // layers after every refresh is exactly the friction that makes people
+  // leave everything global.
+  const [regionScope, setRegionScope] = useState<Record<string, RegionId>>({});
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('dingir_region_scope');
+      if (raw) setRegionScope(JSON.parse(raw));
+    } catch { /* corrupt or unavailable storage: start global, do not crash */ }
+  }, []);
+  const setLayerRegion = useCallback((layerKey: string, region: RegionId) => {
+    setRegionScope(prev => {
+      const next = { ...prev, [layerKey]: region };
+      if (region === 'global') delete next[layerKey];   // keep the map sparse
+      try { localStorage.setItem('dingir_region_scope', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
 
   // Refetch every visible layer for the current viewport.
@@ -435,6 +472,7 @@ export default function Dashboard() {
     // height off a real buoy network is a live tsunami precursor signal, the
     // stated reason this layer exists at all.
     buoys: true,
+    traffic: false,   // opt-in: TomTom evaluation tier has a request budget
     fires: false,
     weather: false,
     // Off by default: an always-on 2,500-particle animation is a real cost
@@ -723,6 +761,23 @@ export default function Dashboard() {
     return () => clearInterval(iv);
   }, [activeLayers.buoys, fetchEndpoint]);
 
+  // Road traffic (TomTom). Unlike every other layer this one is VIEWPORT-BOUND:
+  // TomTom rejects a whole-continent bbox and the evaluation tier has a request
+  // budget, so it follows the map rather than loading the world once. Debounced
+  // on the bounds so a drag does not fire a request per frame, and it refreshes
+  // on its own timer because incidents open and clear on a scale of minutes.
+  useEffect(() => {
+    if (!activeLayers.traffic || !bounds) return;
+    const bbox = `${bounds.west.toFixed(4)},${bounds.south.toFixed(4)},`
+      + `${bounds.east.toFixed(4)},${bounds.north.toFixed(4)}`;
+    const load = () => fetchEndpoint(`/api/traffic?bbox=${bbox}`,
+      d => ({ traffic_incidents: d.incidents, traffic_counts: d.counts }),
+      undefined, { skipWhenHidden: true });
+    const debounce = setTimeout(load, 600);
+    const iv = setInterval(load, 180_000);
+    return () => { clearTimeout(debounce); clearInterval(iv); };
+  }, [activeLayers.traffic, bounds?.west, bounds?.south, bounds?.east, bounds?.north, fetchEndpoint]);
+
   // ── LAYER-AWARE DATA LOADING — only fetch when layer is toggled ON ──
   const layerFetchedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -998,12 +1053,19 @@ export default function Dashboard() {
 
 
             {/* ── DINGIR logo, pulsing while it loads ──
-                Was an abstract geometric ring/crosshair composition (no
-                actual brand mark on it at all); live feedback wanted our
-                real logo here instead. eye-of-horus.svg (public/), not
-                favicon.svg - the favicon has "OSIRIS" burned into the SVG
-                text itself, the old product name, which would sit directly
-                above the "DINGIR" lettering below and read as a branding bug.
+                dingir-logo.png, NOT eye-of-horus.svg and not favicon.svg. All
+                three were on this splash at some point and only one of them is
+                the product's mark: the eye is the OSIRIS icon (the old product
+                name) and the favicon has "OSIRIS" burned into its SVG text, so
+                either one sits directly above the DINGIR wordmark contradicting
+                it. The star is the cuneiform sign DINGIR itself.
+
+                PROVENANCE of the file: geometry taken verbatim from the brand
+                asset at ~/Desktop/docs/dingir_logo.png, whose alpha channel
+                carries the glyph. Only the RGB was replaced (teal gradient);
+                the alpha was verified bit-identical to the source after the
+                recolour, so no ray tip was resampled or softened.
+
                 Entrance (once, scale+fade from 0) is a separate wrapper from
                 the infinite pulse so the two don't fight over the same
                 transform/opacity keyframes. */}
@@ -1014,13 +1076,16 @@ export default function Dashboard() {
               className="relative w-40 h-40 mb-8 flex items-center justify-center z-[2]"
             >
               <motion.img
-                src="/eye-of-horus.svg"
+                src="/dingir-logo.png"
                 alt=""
                 aria-hidden="true"
                 animate={{ opacity: [0.55, 1, 0.55], scale: [0.94, 1.02, 0.94] }}
                 transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
                 className="w-28 h-auto"
-                style={{ filter: 'drop-shadow(0 0 24px rgba(212,175,55,0.35)) drop-shadow(0 0 48px rgba(212,175,55,0.15))' }}
+                // Glow recoloured to the mark's own teal. The old gold values
+                // were tuned for the eye; leaving them would ring a cyan glyph
+                // in a halo that does not belong to it.
+                style={{ filter: 'drop-shadow(0 0 24px rgba(53,196,209,0.40)) drop-shadow(0 0 48px rgba(53,196,209,0.18))' }}
               />
             </motion.div>
 
@@ -1134,6 +1199,7 @@ export default function Dashboard() {
           theme={osirisTheme}
           arcgisLayers={arcgisLayers.filter(l => l.visible).map(l => ({ id: l.id, title: l.title, geojson: l.geojson, color: l.color, opacity: l.opacity }))}
           onMapCenter={setMapCenter}
+          regionScope={regionScope}
           route={activeRoute}
           userLocation={
             navSession && navProgress
@@ -1393,7 +1459,7 @@ export default function Dashboard() {
 
 
       {/* ── NEW SIDEBAR (Root Level) ── */}
-      {showLayers && !isMobile && <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} arcgisLayers={arcgisLayers.map(l => ({ id: l.id, title: l.title, color: l.color, visible: l.visible }))} onToggleArcgis={(id) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l))} onRemoveArcgis={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))} />}
+      {showLayers && !isMobile && <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} arcgisLayers={arcgisLayers.map(l => ({ id: l.id, title: l.title, color: l.color, visible: l.visible }))} onToggleArcgis={(id) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l))} onRemoveArcgis={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))} regionScope={regionScope} onRegionScope={setLayerRegion} />}
 
 
 
@@ -1480,6 +1546,23 @@ export default function Dashboard() {
             <Radio className={`w-4 h-4 ${showReasoningFeed ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.feed')}</span>
+        </div>
+        )}
+
+        {/* Forecasts. Gated like the feed, and like the feed it does not close
+            anything else: the whole point of splitting it out of the reasoning
+            feed is that a standing forecast and a live observation are read at
+            the same time, not instead of each other. */}
+        {dingirLogin && (
+        <div className="relative group">
+          <button onClick={() => setShowPredictions(!showPredictions)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showPredictions ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.predictions.title')}>
+            {/* Telescope, not a crystal ball: the tool behind this panel does
+                not claim to see the future, it points at something real and
+                shows you the optics. The icon should not promise magic that
+                the causality chain then has to walk back. */}
+            <Telescope className={`w-4 h-4 ${showPredictions ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.predictions')}</span>
         </div>
         )}
 
@@ -1721,7 +1804,7 @@ export default function Dashboard() {
                           <div><div className="hud-label" style={{fontSize:'6px'}}>NUC</div><div className="hud-value text-[9px]" style={{color:'var(--accent-nuclear)'}}>{(data.infrastructure?.length||0)}</div></div>
                         </div>
                       </div>
-                      <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} arcgisLayers={arcgisLayers.map(l => ({ id: l.id, title: l.title, color: l.color, visible: l.visible }))} onToggleArcgis={(id) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l))} onRemoveArcgis={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))} />
+                      <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} isMobile={true} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} arcgisLayers={arcgisLayers.map(l => ({ id: l.id, title: l.title, color: l.color, visible: l.visible }))} onToggleArcgis={(id) => setArcgisLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l))} onRemoveArcgis={(id) => setArcgisLayers(prev => prev.filter(l => l.id !== id))} regionScope={regionScope} onRegionScope={setLayerRegion} />
                       <div className="mt-8">
                         <ViewPresets onNavigate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, ts: Date.now() }); setMapView(v => ({ ...v, zoom })); setMobilePanel(null); }} />
                       </div>
@@ -1815,6 +1898,7 @@ export default function Dashboard() {
           focusNode={reasoningFocus}
           onShowEvidence={(id) => setEvidenceNode(id)}
           onClose={() => { setShowReasoningPanel(false); setReasoningFocus(undefined); }}
+          railWidth={railWidth}
         />
       )}
 
@@ -1867,12 +1951,27 @@ export default function Dashboard() {
         />
       )}
 
-      {/* ── DINGIR Reasoning Feed ── */}
+      {/* ── DINGIR Reasoning Feed ──
+          Sits inboard of the forecast panel, so the outermost tool is the one
+          making a falsifiable claim. */}
       {showReasoningFeed && (
         <ReasoningFeed
-          shifted={showReasoningPanel}
+          offsetRight={predWidth}
+          onWidthChange={setFeedWidth}
           onInspect={id => { setReasoningFocus(id); setShowReasoningPanel(true); }}
           onClose={() => setShowReasoningFeed(false)}
+        />
+      )}
+
+      {/* ── DINGIR Prediction Engine ──
+          Outermost in the rail. Title click opens the whitebox on the mainshock
+          node; body click opens the causality chain inline. Two questions, two
+          targets -- collapsing them into one click loses one of them. */}
+      {showPredictions && (
+        <PredictionPanel
+          onWidthChange={setPredWidth}
+          onInspect={id => { setReasoningFocus(id); setShowReasoningPanel(true); }}
+          onClose={() => setShowPredictions(false)}
         />
       )}
 

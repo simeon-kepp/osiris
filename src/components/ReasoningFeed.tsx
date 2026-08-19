@@ -58,14 +58,20 @@ const FALLBACK_STYLE = { dot: '#8a8aa0', label: 'ENTRY', hint: '' };
 interface Props {
   onClose: () => void;
   onInspect?: (nodeId: string) => void;
-  /** True while the reasoning panel is open. Both are `fixed right-0`, so the
-   *  feed steps aside to sit beside it -- but only from xl up, where 460 + 520
-   *  px actually fit. On a narrower screen the panel simply covers the feed,
-   *  which stays connected and reappears when the panel closes. */
-  shifted?: boolean;
+  /** Px already occupied to the right of this panel by another rail tool.
+   *
+   *  WAS A BOOLEAN, AND THAT WAS THE BUG. It used to be `shifted`, and the feed
+   *  answered it with a hardcoded `xl:right-[520px]` -- the reasoning panel's
+   *  width at the time. When that panel expanded it switched to `w-screen`,
+   *  which the feed had no way to learn about, so the feed stayed offset by a
+   *  width that no longer existed and vanished behind a fullscreen panel. A
+   *  number reported by the neighbour cannot go stale that way. */
+  offsetRight?: number;
+  /** Reported upward so the rest of the rail lays out around the real width. */
+  onWidthChange?: (px: number) => void;
 }
 
-export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
+export default function ReasoningFeed({ onClose, onInspect, offsetRight = 0, onWidthChange }: Props) {
   const { t: tr } = useLocale();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [connected, setConnected] = useState(false);
@@ -75,6 +81,12 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const seenTitles = useRef<Set<string>>(new Set());
   const [freshTitles, setFreshTitles] = useState<Set<string>>(new Set());
+
+  const width = expanded ? 900 : 460;
+  useEffect(() => { onWidthChange?.(width); }, [width, onWidthChange]);
+  // Report 0 on unmount, otherwise a closed feed keeps reserving its width and
+  // the whitebox never reclaims the space.
+  useEffect(() => () => onWidthChange?.(0), [onWidthChange]);
 
   useEffect(() => {
     const es = new EventSource('/api/reasoning/feed');
@@ -118,8 +130,13 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
       <motion.div
         initial={{ x: 500, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 500, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className={`fixed top-0 right-0 h-full z-[499] flex flex-col glass-panel ${expanded ? 'w-[900px] max-w-[95vw]' : 'w-[460px] max-w-[92vw]'} ${shifted && !expanded ? 'xl:right-[520px]' : ''}`}
-        style={{ borderLeft: '1px solid var(--border-primary)', borderRadius: 0 }}
+        className="fixed top-0 h-full z-[499] flex flex-col glass-panel"
+        style={{
+          right: offsetRight,
+          width: `min(${expanded ? 900 : 460}px, ${expanded ? 95 : 92}vw)`,
+          borderLeft: '1px solid var(--border-primary)',
+          borderRadius: 0,
+        }}
       >
         <div className="flex items-start justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
           <div>
@@ -127,7 +144,7 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
               <Radio className={`w-3.5 h-3.5 ${connected ? 'text-[var(--cyan-primary)]' : 'text-[var(--text-muted)]'}`} />
               {tr('feed.title')}
             </div>
-            <div className="text-[9px] text-[var(--text-muted)] font-mono tracking-wide">
+            <div className="text-[9px] text-[var(--text-muted)] tabular-nums tracking-wide">
               {snapshot
                 ? `${snapshot.graph.nodes} nodes · ${snapshot.graph.edges} edges${lastUpdate ? ` · updated ${new Date(lastUpdate).toLocaleTimeString()}` : ''}`
                 : (error || tr('feed.connecting'))}
@@ -153,7 +170,7 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
               const on = visibleKinds.size === 0 || visibleKinds.has(k);
               return (
                 <button key={k} onClick={() => toggleKind(k)} title={st.hint}
-                  className={`flex items-center gap-1.5 rounded px-2 py-1 text-[9px] font-mono tracking-wide border transition ${
+                  className={`flex items-center gap-1.5 rounded px-2 py-1 text-[9px] tabular-nums tracking-wide border transition ${
                     on ? 'border-white/20 text-[var(--text-primary)]' : 'border-white/5 text-[var(--text-muted)] line-through'}`}>
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: st.dot }} />
                   {st.label} {snapshot?.counts[k]}
@@ -181,15 +198,15 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
                 className={`px-4 py-2.5 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors ${isGuess ? 'bg-[#b388ff]/[0.04]' : ''}`}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: st.dot }} />
-                  <span className="text-[8px] font-mono tracking-widest text-[var(--text-muted)]">{st.label}</span>
+                  <span className="text-[8px] tabular-nums tracking-widest text-[var(--text-muted)]">{st.label}</span>
                   {freshTitles.has(item.title) && (
-                    <span className="text-[7px] font-mono tracking-widest text-[var(--cyan-primary)] border border-[var(--cyan-primary)]/40 rounded px-1">NEW</span>
+                    <span className="text-[7px] tabular-nums tracking-widest text-[var(--cyan-primary)] border border-[var(--cyan-primary)]/40 rounded px-1">NEW</span>
                   )}
-                  <span className="ml-auto text-[8px] font-mono text-[var(--text-muted)]">{item.score}</span>
+                  <span className="ml-auto text-[8px] tabular-nums text-[var(--text-muted)]">{item.score}</span>
                 </div>
                 <button
                   onClick={() => item.nodes[0] && onInspect?.(item.nodes[0])}
-                  className="block w-full text-left text-[11px] font-mono text-[var(--text-primary)] leading-snug hover:text-[var(--cyan-primary)] transition-colors">
+                  className="block w-full text-left text-[11px] tabular-nums text-[var(--text-primary)] leading-snug hover:text-[var(--cyan-primary)] transition-colors">
                   {item.title}
                 </button>
                 <p className="mt-1 text-[11px] text-[var(--text-muted)] leading-relaxed">
@@ -198,7 +215,7 @@ export default function ReasoningFeed({ onClose, onInspect, shifted }: Props) {
                 {isGuess && (
                   // Spelled out on every single entry, not just in the legend.
                   // A reader scrolling a feed does not carry the legend with them.
-                  <p className="mt-1 text-[9px] font-mono tracking-wide text-[#b388ff]">
+                  <p className="mt-1 text-[9px] tabular-nums tracking-wide text-[#b388ff]">
                     {tr('feed.hypothesis')} {item.epistemic_status || 'PLAUSIBLE'}
                   </p>
                 )}

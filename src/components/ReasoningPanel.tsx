@@ -67,9 +67,18 @@ interface Props {
   /** Node id to open on, e.g. handed over from a feed entry. Falls back to a
    *  known-populated node so the panel is never blank on first open. */
   focusNode?: string;
+  /** Px occupied by the right-hand rail (feed, forecast) that this panel must
+   *  not cover.
+   *
+   *  WHY EXPANDED IS NO LONGER `w-screen`. It was, and that silently broke the
+   *  rail: a full-viewport panel leaves a neighbour at `right: 460px` sitting
+   *  underneath it with nothing visible. Expanding a panel is a request for the
+   *  available space, not for the other tools to disappear -- so expanded now
+   *  means "the viewport minus whatever is already spoken for". */
+  railWidth?: number;
 }
 
-export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: Props) {
+export default function ReasoningPanel({ onClose, focusNode, onShowEvidence, railWidth = 0 }: Props) {
   const { t: tr } = useLocale();
   const [input, setInput] = useState('');
   const [node, setNode] = useState('');
@@ -196,7 +205,7 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
     // next/font already loaded for the rest of the page. Reading the actual
     // --font-hud value is what keeps this text matching everywhere else.
     const hudFont = getComputedStyle(document.documentElement).getPropertyValue('--font-hud').trim()
-      || '"JetBrains Mono", monospace';
+      || '"Inter", sans-serif';
 
     const fit = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -355,8 +364,19 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence }: P
       <motion.div
         initial={{ x: 500, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 500, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className={`fixed top-0 right-0 h-full z-[500] flex flex-col glass-panel ${expanded ? 'w-screen' : 'w-[520px] max-w-[92vw]'}`}
-        style={{ borderLeft: '1px solid var(--border-primary)', borderRight: 'none', borderTop: 'none', borderBottom: 'none', borderRadius: 0 }}
+        className="fixed top-0 h-full z-[500] flex flex-col glass-panel"
+        style={{
+          right: railWidth,
+          // Expanded takes the viewport MINUS the rail. The 420px floor stops a
+          // wide rail on a narrow screen from squeezing this to nothing -- below
+          // that the panel overlaps the rail instead, which is ugly but legible,
+          // where a 40px-wide panel would be neither.
+          width: expanded
+            ? `max(420px, calc(100vw - ${railWidth}px))`
+            : 'min(520px, 92vw)',
+          borderLeft: '1px solid var(--border-primary)',
+          borderRight: 'none', borderTop: 'none', borderBottom: 'none', borderRadius: 0,
+        }}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
           <div>

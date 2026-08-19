@@ -80,7 +80,7 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
     // reading it at runtime and handing the resolved stack to the chart is
     // what actually makes this text match everything else on screen.
     const hudFont = getComputedStyle(document.documentElement).getPropertyValue('--font-hud').trim()
-      || "'JetBrains Mono', 'Courier New', monospace";
+      || "'Inter', sans-serif";
 
     const chart = createChart(containerRef.current, {
       // The library measures the container itself. Sizing the canvases by

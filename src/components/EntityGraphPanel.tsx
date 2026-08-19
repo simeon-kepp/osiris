@@ -20,9 +20,9 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false 
 let cachedHudFont: string | null = null;
 function hudFont(): string {
   if (cachedHudFont) return cachedHudFont;
-  if (typeof document === 'undefined') return "'JetBrains Mono', monospace";
+  if (typeof document === 'undefined') return "'Inter', sans-serif";
   cachedHudFont = getComputedStyle(document.documentElement).getPropertyValue('--font-hud').trim()
-    || "'JetBrains Mono', monospace";
+    || "'Inter', sans-serif";
   return cachedHudFont;
 }
 
