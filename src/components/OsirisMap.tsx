@@ -188,6 +188,7 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
     map.on('load', () => {
       mapRef.current = map;
+      if (typeof window !== 'undefined' && (window as any).__FILM) (window as any).__osirisMap = map;
       
       // Theme colors
       const isGhost = theme === 'ghost';

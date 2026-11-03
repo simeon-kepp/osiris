@@ -62,6 +62,7 @@ setInterval(() => {
 
 interface BriefingRequestBody {
   context: IntelligenceContext;
+  request?: string;
 }
 
 interface BriefingResponse {
@@ -112,7 +113,7 @@ export async function POST(
   }
 
   const userKey = (request.headers.get('x-llm-key') || request.headers.get('x-gemini-key'))?.trim();
-  const provider = resolveProvider(userKey);
+  const provider = resolveProvider(userKey, request.headers.get('x-llm-model') || undefined);
   if (!provider) {
     return NextResponse.json(
       {
@@ -143,7 +144,8 @@ export async function POST(
   }
 
   try {
-    const briefing = await generateBriefing(provider, body.context);
+    const request = typeof body.request === 'string' ? body.request.trim().slice(0, 500) : undefined;
+    const briefing = await generateBriefing(provider, body.context, request || undefined);
     return NextResponse.json(
       { briefing, model: `${provider.label} / ${provider.model}`, generatedAt: new Date().toISOString() },
       { headers: { 'X-RateLimit-Remaining': String(rateCheck.remaining) } }

@@ -67,10 +67,10 @@ export async function GET(req: Request) {
   // snapshot, so it costs nothing upstream.
   if (new URL(req.url).searchParams.get('once')) {
     if (!snapshot) {
-      // The poller was only just started by this request. Give the first fetch
-      // a chance rather than returning an empty snapshot the caller cannot
-      // distinguish from a genuinely quiet system.
-      await pollOnce();
+      // Cold start: the first poll can take minutes (GCN retrain, up to 330s). Waiting
+      // for it made the first chat message hang. Wait briefly, then answer with what
+      // exists; the poller keeps running and the next question gets the real snapshot.
+      await Promise.race([pollOnce(), new Promise(r => setTimeout(r, 2500))]);
     }
     return new Response(JSON.stringify(snapshot ?? { items: [], counts: {}, graph: { nodes: 0, edges: 0 } }), {
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },

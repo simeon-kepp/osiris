@@ -92,6 +92,9 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
         textColor: '#78909C',
         fontFamily: hudFont,
         fontSize: 9,
+        // Keep the required TradingView attribution as a compact text link in
+        // our chart footer instead of the large canvas logo overlay.
+        attributionLogo: false,
       },
       grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
       rightPriceScale: { borderColor: AXIS, scaleMargins: { top: 0.1, bottom: 0.26 } },
@@ -254,6 +257,7 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
           ))}
         </div>
       </div>
+      <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer" className="mt-1 block text-right text-[7px] font-mono text-[#7d8796] hover:text-[#c3c8d2]">Charting by TradingView</a>
     </div>
   );
 }

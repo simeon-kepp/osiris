@@ -1,3 +1,4 @@
+import { cachedRoute, keyOf } from '@/lib/routeCache';
 import { NextResponse } from 'next/server';
 
 /**
@@ -68,7 +69,7 @@ export function parseCandles(result: unknown): Candle[] {
   return out;
 }
 
-export async function GET(request: Request) {
+async function compute(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol')?.trim();
   const rangeKey = searchParams.get('range') || '1M';
@@ -109,4 +110,8 @@ export async function GET(request: Request) {
     console.error('Markets history error:', error);
     return NextResponse.json({ error: 'Failed', candles: [] }, { status: 500 });
   }
+}
+
+export async function GET(request: Request) {
+  return cachedRoute(keyOf(request), 120000, () => compute(request));
 }

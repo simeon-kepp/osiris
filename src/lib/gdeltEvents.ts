@@ -1,5 +1,6 @@
 import { inflateRawSync } from 'zlib';
 import { get as httpGet } from 'http';
+import { get as httpsGet } from 'https';
 
 /**
  * ═══════════════════════════════════════════════════════════════
@@ -29,7 +30,8 @@ const LASTUPDATE_URL = 'http://data.gdeltproject.org/gdeltv2/lastupdate.txt';
  */
 function httpGetBufferIPv4(url: string, timeoutMs: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const req = httpGet(url, { family: 4, timeout: timeoutMs }, res => {
+    const requestGet = url.startsWith('https:') ? httpsGet : httpGet;
+    const req = requestGet(url, { family: 4, timeout: timeoutMs }, res => {
       const status = res.statusCode ?? 0;
 
       if (status >= 300 && status < 400 && res.headers.location) {

@@ -71,7 +71,10 @@ export async function GET(req: Request) {
       signal: AbortSignal.timeout(15_000),
     });
     login = (await userRes.json())?.login;
-  } catch {
+  } catch (e) {
+    // Without this line the failure left no trace: the browser only saw a
+    // redirect to the dashboard. See /api/health/upstream.
+    console.error('[dingir-auth] GitHub token exchange failed:', e);
     return deny(origin, 'upstream');
   }
 

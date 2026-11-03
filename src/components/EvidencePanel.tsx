@@ -50,10 +50,11 @@ const PROV_STYLE: Record<string, { colour: string; note: string }> = {
   PREDICTED: { colour: '#b388ff', note: 'a guess with no evidence' },
 };
 
-export default function EvidencePanel({ node, onClose, onOpenNode }: {
+export default function EvidencePanel({ node, onClose, onOpenNode, rightOffset = 0 }: {
   node: string;
   onClose: () => void;
   onOpenNode?: (id: string) => void;
+  rightOffset?: number;
 }) {
   const { t: tr } = useLocale();
   const [data, setData] = useState<Evidence | null>(null);
@@ -100,8 +101,8 @@ export default function EvidencePanel({ node, onClose, onOpenNode }: {
       <motion.div
         initial={{ x: 420, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 420, opacity: 0 }}
         transition={{ type: 'spring', damping: 26, stiffness: 210 }}
-        className="fixed top-0 right-0 h-full z-[520] w-[440px] max-w-[92vw] flex flex-col glass-panel"
-        style={{ borderLeft: '1px solid var(--border-primary)', borderRadius: 0 }}
+        className="fixed top-0 h-full z-[520] w-[440px] max-w-[92vw] flex flex-col glass-panel bg-[#080c15]"
+        style={{ right: rightOffset, borderLeft: '1px solid var(--border-primary)', borderRadius: 0 }}
       >
         <div className="flex items-start justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
           <div className="min-w-0">

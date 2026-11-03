@@ -8,7 +8,7 @@ import {
   Bluetooth, BluetoothSearching, Tv, Speaker, X,
   Gamepad2, Lightbulb, Watch, Headphones, Mouse, Keyboard, Smartphone,
   BatteryMedium, Fan, Eye, Send, Bell, BellOff, ChevronRight, Copy, Check,
-  AlertTriangle, Scan, Zap, Unplug, Layers, ChevronDown, ChevronUp,
+  AlertTriangle, Scan, Zap, Unplug, Layers, ChevronDown,
   Maximize2, Minimize2, Trash2, Pause, Play, Cpu, Printer,
   ScanLine, Plug, Radio, Clock, Server, Terminal,
   MapPin, Download, Database, Crosshair, Navigation,
@@ -132,7 +132,7 @@ export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,on
   const [exDev,setExDev]=useState<string|null>(null);
   const [full,setFull]=useState(false);
   const [paused,setPaused]=useState(false);
-  const [expanded,setExpanded]=useState(true);
+  const [expanded]=useState(true);
   const [netIntel,setNetIntel]=useState<NetIntel|null>(null);
   const [netLoading,setNetLoading]=useState(false);
   const [vaultCount,setVaultCount]=useState(0);
@@ -328,16 +328,16 @@ export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,on
      R E N D E R
      ═══════════════════════════════════════════════════════════════ */
   const inner=(
-    <div className={`glass-panel flex flex-col overflow-hidden pointer-events-auto shrink-0 ${full?'w-full h-full':'h-[500px] max-h-[80vh] resize-y'}`}>
+    <div className={`glass-panel flex flex-col overflow-hidden pointer-events-auto shrink-0 h-full min-h-0 ${full?'w-full':''}`}>
 
       {/* ─── HEADER ─── */}
       <div className="flex-shrink-0 flex items-center justify-between px-3 py-2.5 border-b border-[rgba(255,255,255,0.05)] bg-[rgba(0,0,0,0.3)] hover:bg-[var(--hover-accent)] transition-colors">
-        <button onClick={()=>setExpanded(!expanded)} className="flex items-center gap-2 flex-1">
+          <div className="flex items-center gap-2 flex-1">
           <Crosshair className="w-3.5 h-3.5 text-[var(--cyan-primary)]"/>
           <span className="hud-text text-[12px] text-[var(--text-primary)]">MARAUDER</span>
           <span className="gotham-tag gotham-tag--info" style={{fontSize:'7px',padding:'1px 5px'}}>{devices.length} DEVS</span>
           {scanning&&<span className="gotham-tag" style={{fontSize:'7px',padding:'1px 5px',background:'rgba(0,230,255,0.1)',color:'var(--cyan-primary)'}}>SCANNING</span>}
-        </button>
+        </div>
         <div className="flex items-center gap-2">
           <motion.button whileTap={{scale:0.95}} onClick={scan} disabled={scanning||!btOk}
             className="px-2.5 py-1 rounded-md text-[8px] font-mono font-bold tracking-wider flex items-center gap-1.5 disabled:opacity-30"
@@ -353,9 +353,7 @@ export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,on
             {full?<Minimize2 className="w-3.5 h-3.5"/>:<Maximize2 className="w-3.5 h-3.5"/>}
           </button>
           <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyan-primary)] animate-osiris-pulse"/>
-          <button onClick={()=>setExpanded(!expanded)}>
-            {expanded?<ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]"/>:<ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]"/>}
-          </button>
+          {onClose && <button onClick={onClose} className="rounded p-1 hover:bg-white/10" title="Close"><X className="h-3.5 w-3.5 text-[#c3c8d2]"/></button>}
         </div>
       </div>
 

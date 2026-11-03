@@ -6,10 +6,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LocateFixed,
   Search, Radar, Globe, Shield, FileText, Radio,
-  ChevronDown, ChevronUp, Loader2, AlertTriangle, Server,
+  ChevronDown, Loader2, AlertTriangle, Server,
   Wifi, Lock, MapPin, Bug, Code, Layers, Network, Fingerprint,
   CheckCircle, XCircle, Clock, ExternalLink, Crosshair,
-  Maximize2, Minimize2, Gavel, Bitcoin, Phone, Terminal, ShieldAlert, User
+  Maximize2, Minimize2, Gavel, Bitcoin, Phone, Terminal, ShieldAlert, User,
+  X,
 } from 'lucide-react';
 import { ipToNumber, numberToIp, calculateSubnetStart, classifyDevice, assessRisk, batchFetch, ShodanInternetDBResponse, SweepDevice } from '@/lib/osint-utils';
 import ChainBrief from '@/components/ChainBrief';
@@ -68,7 +69,7 @@ const TABS: ToolDef[] = [
 
 interface OsintPanelProps { isOpen?: boolean; onClose?: () => void; isMobile?: boolean; onSweepVisualize?: (data: any) => void; onScanGeolocate?: (target: string, data: any) => void; }
 
-function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintPanelProps) {
+function OsintPanelInner({ isMobile, onClose, onSweepVisualize, onScanGeolocate }: OsintPanelProps) {
   const [activeTab, setActiveTab] = useState('scanner');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [query, setQuery] = useState('');
@@ -76,7 +77,7 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [scanType, setScanType] = useState('quick');
-  const [expanded, setExpanded] = useState(true);
+  const [expanded] = useState(true);
   const [history, setHistory] = useState<{tab:string;query:string;time:string}[]>([]);
   const [sweepResult, setSweepResult] = useState<any>(null);
   const [sweepProgress, setSweepProgress] = useState<{ current: number; total: number } | null>(null);
@@ -1603,21 +1604,19 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
   }
 
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="glass-panel flex flex-col overflow-hidden pointer-events-auto shrink-0 h-[500px] max-h-[80vh] resize-y">
+        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }} className="glass-panel flex flex-col overflow-hidden pointer-events-auto shrink-0 h-full min-h-0">
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-[rgba(255,255,255,0.05)] bg-[rgba(0,0,0,0.3)] hover:bg-[var(--hover-accent)] transition-colors">
-        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 flex-1">
+        <div className="flex items-center gap-2 flex-1">
           <Radar className="w-3.5 h-3.5 text-[var(--cyan-primary)]" />
           <span className="hud-text text-[12px] text-[var(--text-primary)]">RECON TOOLKIT</span>
           <span className="gotham-tag gotham-tag--info" style={{ fontSize: '7px', padding: '1px 5px' }}>{TABS.length} TOOLS</span>
-        </button>
+        </div>
         <div className="flex items-center gap-3">
           <button onClick={() => setIsFullScreen(true)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Full Screen">
              <Maximize2 className="w-3.5 h-3.5" />
           </button>
           <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyan-primary)] animate-osiris-pulse" />
-          <button onClick={() => setExpanded(!expanded)}>
-            {expanded ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
-          </button>
+          {onClose && <button onClick={onClose} className="rounded p-1 hover:bg-white/10" title="Close"><X className="h-3.5 w-3.5 text-[#c3c8d2]" /></button>}
         </div>
       </div>
       <AnimatePresence>

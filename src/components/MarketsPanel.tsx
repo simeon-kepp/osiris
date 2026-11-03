@@ -1,32 +1,23 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  TrendingUp, TrendingDown, ChevronDown, ChevronUp, BarChart3,
-  Zap, Shield, Droplets, Gem, Bitcoin, LineChart, Maximize2, Minimize2,
+  BarChart3, X,
+  Shield, Droplets, Gem, Bitcoin, LineChart, Maximize2, Minimize2,
   DollarSign, ArrowUpDown, AlertTriangle,
 } from 'lucide-react';
 import AiOverview from './AiOverview';
+import MarketTicker, { formatPrice, type MarketQuote } from './markets/MarketTicker';
+import SpaceWeatherCard from './markets/SpaceWeatherCard';
 
 // Canvas charting has no business in the server bundle, and it only mounts
 // once a ticker is actually opened.
 const MarketChart = dynamic(() => import('./MarketChart'), { ssr: false });
 
-interface Quote {
-  name: string;
-  symbol: string;
-  price: number;
-  change_percent: number;
-  up: boolean;
-  spark?: number[];
-  currency?: string;
-  market_open?: boolean;
-}
-
-interface MarketsPanelProps { data: any; spaceWeather?: any; }
+interface MarketsPanelProps { data: any; spaceWeather?: any; onClose?: () => void; }
 
 const SECTIONS = [
   { key: 'indices', label: 'INDICES', icon: LineChart },
@@ -39,73 +30,6 @@ const SECTIONS = [
 
 const GREEN = 'var(--alert-green)';
 const RED = 'var(--alert-red)';
-
-/** Prices span 0.9 (FX) to 100,000 (BTC) — one formatter can't serve both. */
-function formatPrice(v: number): string {
-  const abs = Math.abs(v);
-  if (abs >= 10000) return `${(v / 1000).toFixed(1)}K`;
-  if (abs >= 100) return v.toFixed(2);
-  if (abs >= 1) return v.toFixed(2);
-  return v.toFixed(4);
-}
-
-/**
- * A month of closes as a single path. Drawn in the direction colour so the
- * trend and the day's move read as one thing rather than two competing signals.
- */
-function Sparkline({ points, up }: { points: number[]; up: boolean }) {
-  const W = 46, H = 14;
-  const path = useMemo(() => {
-    if (points.length < 2) return null;
-    const min = Math.min(...points);
-    const max = Math.max(...points);
-    const span = max - min || 1; // a flat line would divide by zero
-    const step = W / (points.length - 1);
-    return points
-      .map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${(H - ((p - min) / span) * H).toFixed(1)}`)
-      .join(' ');
-  }, [points]);
-
-  if (!path) return <div style={{ width: W, height: H }} />;
-
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="overflow-visible shrink-0" aria-hidden="true">
-      <path d={path} fill="none" stroke={up ? GREEN : RED} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" opacity="0.75" />
-    </svg>
-  );
-}
-
-function Ticker({ quote, active, onSelect }: { quote: Quote; active: boolean; onSelect: () => void }) {
-  const d = quote;
-  return (
-    <button
-      onClick={onSelect}
-      title={`${d.name} — open chart`}
-      className={`w-full flex items-center justify-between gap-2 py-1.5 px-2 rounded transition-colors ${active ? 'bg-[var(--hover-accent)] border border-[var(--border-primary)]' : 'border border-transparent hover:bg-[var(--hover-accent)]'}`}>
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-mono text-[var(--text-secondary)] tracking-wide truncate">{d.name}</div>
-        {d.symbol && d.symbol !== d.name && (
-          <div className="text-[8px] font-mono text-[var(--text-muted)] truncate">{d.symbol}</div>
-        )}
-      </div>
-
-      <Sparkline points={d.spark || []} up={d.up} />
-
-      <div className="flex flex-col items-end shrink-0 w-[86px]">
-        <span className="text-[11px] font-mono font-bold text-[var(--text-primary)] tabular-nums">
-          {formatPrice(d.price)}
-        </span>
-        <span
-          className="text-[9px] font-mono font-bold flex items-center gap-0.5 tabular-nums"
-          style={{ color: d.up ? GREEN : RED }}
-        >
-          {d.up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-          {d.change_percent > 0 ? '+' : ''}{d.change_percent?.toFixed(2)}%
-        </span>
-      </div>
-    </button>
-  );
-}
 
 /** How long ago the feed was built, so a frozen panel is visibly frozen. */
 function useFeedAge(timestamp?: string): string | null {
@@ -124,13 +48,14 @@ function useFeedAge(timestamp?: string): string | null {
   return `${Math.floor(mins / 60)}h ago`;
 }
 
-export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) {
-  const [expanded, setExpanded] = useState(true);
+export default function MarketsPanel({ data, spaceWeather, onClose }: MarketsPanelProps) {
+  const [expanded] = useState(true);
   const [maximized, setMaximized] = useState(false);
   const [activeSection, setActiveSection] = useState('stocks');
   const [sortByMove, setSortByMove] = useState(false);
   /** The instrument whose chart is open, if any. */
   const [selected, setSelected] = useState<{ symbol: string; name: string } | null>(null);
+  const autoOpenedRef = useRef(false);
   // Memoised so the derived lists below don't recompute on every render.
   const markets = useMemo(() => data.markets || {}, [data.markets]);
   const age = useFeedAge(markets.timestamp);
@@ -153,8 +78,8 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
   }, [maximized, selected]);
 
   /** Every instrument across every section — the basis for the breadth line. */
-  const allQuotes = useMemo<Quote[]>(
-    () => SECTIONS.flatMap(s => Object.values<Quote>(markets[s.key] || {})).filter(q => Number.isFinite(q?.change_percent)),
+  const allQuotes = useMemo<MarketQuote[]>(
+    () => SECTIONS.flatMap(s => Object.values<MarketQuote>(markets[s.key] || {})).filter(q => Number.isFinite(q?.change_percent)),
     [markets],
   );
 
@@ -170,7 +95,7 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
   const sectionOverviews = useMemo(
     () => SECTIONS.map(s => ({
       section: s,
-      top: Object.values<Quote>(markets[s.key] || {})
+      top: Object.values<MarketQuote>(markets[s.key] || {})
         .filter(q => Number.isFinite(q?.change_percent))
         .sort((a, b) => Math.abs(b.change_percent) - Math.abs(a.change_percent))
         .slice(0, 3),
@@ -178,10 +103,20 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
     [markets],
   );
 
-  const rows = useMemo<Quote[]>(() => {
-    const list = Object.values<Quote>(markets[activeSection] || {});
+  const rows = useMemo<MarketQuote[]>(() => {
+    const list = Object.values<MarketQuote>(markets[activeSection] || {});
     return sortByMove ? [...list].sort((a, b) => b.change_percent - a.change_percent) : list;
   }, [markets, activeSection, sortByMove]);
+
+  // Give the operator a useful first view immediately, and make section tabs
+  // deterministic: changing INDICES/DEFENSE/ENERGY always opens that section's
+  // first instrument instead of leaving the previous section's chart behind.
+  useEffect(() => {
+    if (!autoOpenedRef.current && rows[0]?.symbol) {
+      autoOpenedRef.current = true;
+      setSelected({ symbol: rows[0].symbol, name: rows[0].name });
+    }
+  }, [rows]);
 
   // A section with no rows means the upstream refresh failed — say so, rather
   // than showing a "Loading…" that never resolves until the next 15m poll.
@@ -213,24 +148,7 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
     </div>
   );
 
-  const spaceBlock = spaceWeather && (
-    <div className="p-2 rounded-lg border" style={{ borderColor: `${spaceWeather.storm_color}33`, background: `${spaceWeather.storm_color}08` }}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Zap className="w-3 h-3" style={{ color: spaceWeather.storm_color }} />
-          <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">SPACE WEATHER</span>
-        </div>
-        <span className="text-[10px] font-mono font-bold" style={{ color: spaceWeather.storm_color }}>
-          Kp {spaceWeather.kp_index} — {spaceWeather.storm_level}
-        </span>
-      </div>
-      {spaceWeather.solar_flares?.length > 0 && (
-        <div className="mt-1 text-[8px] font-mono text-[var(--text-muted)]">
-          Latest flare: {spaceWeather.solar_flares[0].class}
-        </div>
-      )}
-    </div>
-  );
+  const spaceBlock = <SpaceWeatherCard weather={spaceWeather} />;
 
   const aiBlock = <AiOverview mode="markets" payload={{ markets, spaceWeather }} accent="#D4AF37" />;
 
@@ -257,11 +175,11 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
    *  clicked. Clicking a card's mover opens straight to its chart, same as
    *  clicking it in the full list would. */
   const sectionOverviewGrid = (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 auto-rows-fr gap-2 min-h-[390px]">
       {sectionOverviews.map(({ section, top }) => {
         const Icon = section.icon;
         return (
-          <div key={section.key} className="p-2 rounded-lg border border-[var(--border-primary)] bg-white/[0.02]">
+          <div key={section.key} className="min-h-[112px] p-3 rounded-lg border border-[var(--border-primary)] bg-gradient-to-br from-white/[0.045] to-transparent">
             <div className="flex items-center gap-1.5 mb-1.5">
               <Icon className="w-3 h-3 text-[var(--gold-primary)]" />
               <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)]">{section.label}</span>
@@ -270,8 +188,8 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
               <div className="space-y-1">
                 {top.map(q => (
                   <button key={q.symbol || q.name} onClick={() => { setActiveSection(section.key); setSelected({ symbol: q.symbol, name: q.name }); }}
-                    className="w-full flex items-center justify-between text-[9px] font-mono hover:bg-[var(--hover-accent)] rounded px-1 -mx-1 py-0.5 transition-colors">
-                    <span className="text-[var(--text-secondary)] truncate">{q.name}</span>
+                    className="w-full flex items-center justify-between text-[10px] font-mono hover:bg-[var(--hover-accent)] rounded px-1 -mx-1 py-1 transition-colors">
+                    <span className="text-[#d7dbe3] truncate">{q.name}</span>
                     <span className="font-bold tabular-nums shrink-0 ml-2" style={{ color: q.up ? GREEN : RED }}>
                       {q.change_percent > 0 ? '+' : ''}{q.change_percent?.toFixed(2)}%
                     </span>
@@ -284,6 +202,29 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
           </div>
         );
       })}
+    </div>
+  );
+
+  const marketPulseBlock = breadth && (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 rounded-lg border border-[var(--border-primary)] bg-gradient-to-r from-[#101927] via-[#0b111c] to-[#11151d] p-3 min-h-[142px]">
+      <div className="md:border-r md:border-white/[.08] pr-3">
+        <div className="text-[8px] font-mono tracking-[.18em] text-[#aeb4c0]">MARKET PULSE</div>
+        <div className="mt-2 flex items-end gap-2">
+          <span className="text-2xl font-mono font-bold text-white">{breadth.up}<span className="text-[#8b96a6] text-sm"> / {breadth.total}</span></span>
+          <span className="mb-1 text-[10px] font-mono text-[#00f5c4]">ADVANCING</span>
+        </div>
+        <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-[#ff6b6b]/30"><div className="h-full rounded-full bg-[#00f5c4]" style={{ width: `${(breadth.up / breadth.total) * 100}%` }} /></div>
+      </div>
+      <div className="md:border-r md:border-white/[.08] px-1 md:px-3">
+        <div className="text-[8px] font-mono tracking-[.18em] text-[#aeb4c0]">LEADER</div>
+        <div className="mt-3 text-[13px] font-mono text-white truncate">{breadth.top.name}</div>
+        <div className="mt-1 text-[18px] font-mono font-bold text-[#00f5c4]">+{breadth.top.change_percent.toFixed(2)}%</div>
+      </div>
+      <div className="px-1 md:px-3">
+        <div className="text-[8px] font-mono tracking-[.18em] text-[#aeb4c0]">LAGGARD</div>
+        <div className="mt-3 text-[13px] font-mono text-white truncate">{breadth.worst.name}</div>
+        <div className="mt-1 text-[18px] font-mono font-bold text-[#ff6b6b]">{breadth.worst.change_percent.toFixed(2)}%</div>
+      </div>
     </div>
   );
 
@@ -312,7 +253,7 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
         const Icon = s.icon;
         const count = Object.keys(markets[s.key] || {}).length;
         return (
-          <button key={s.key} onClick={() => setActiveSection(s.key)}
+          <button key={s.key} onClick={() => { setActiveSection(s.key); const first = Object.values<MarketQuote>(markets[s.key] || {})[0]; if (first?.symbol) setSelected({ symbol: first.symbol, name: first.name }); }}
             className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-[9px] font-mono tracking-wider whitespace-nowrap transition-all ${activeSection === s.key ? 'bg-[var(--hover-accent)] text-[var(--gold-primary)] border border-[var(--border-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] border border-transparent'}`}>
             <Icon className="w-3 h-3" />
             {s.label}
@@ -343,7 +284,7 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
   const listRows = (
     <>
       {rows.map(q => (
-        <Ticker
+        <MarketTicker
           key={q.symbol || q.name}
           quote={q}
           active={selected?.symbol === q.symbol}
@@ -367,24 +308,22 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
   );
 
   const content = (
-    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.6, duration: 0.6 }} className={`glass-panel p-3 pointer-events-auto transition-all duration-300 flex flex-col ${maximized ? 'fixed inset-3 z-[9999] bg-[#0a0a09]/95 backdrop-blur-3xl' : ''}`}>
+    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.6, duration: 0.6 }} className={`glass-panel p-3 pointer-events-auto transition-all duration-300 flex flex-col h-full min-h-0 bg-[#090d16]/95 border border-white/10 shadow-2xl ${maximized ? 'fixed inset-3 z-[9999] bg-[#0a0a09]/95 backdrop-blur-3xl' : ''}`}>
       {/* Header controls sit side by side, not nested — a button inside a
           button is invalid HTML and React fails hydration on it. */}
       <div className="flex items-center justify-between w-full mb-2">
-        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <BarChart3 className="w-3.5 h-3.5 text-[var(--gold-primary)]" />
           <span className="hud-text text-[12px] text-[var(--text-primary)]">MARKETS & INTEL</span>
           <span className="gotham-tag gotham-tag--low" style={{ fontSize: '7px', padding: '1px 4px' }}>LIVE</span>
-        </button>
+        </div>
         <div className="flex items-center gap-2">
           {age && <span className="text-[8px] font-mono text-[var(--text-muted)]">{age}</span>}
           <div className="w-1.5 h-1.5 rounded-full bg-[var(--alert-green)] animate-osiris-pulse" />
-          <button onClick={() => { setMaximized(!maximized); if (!expanded && !maximized) setExpanded(true); }} className="hover:text-white transition-colors" title={maximized ? "Restore" : "Maximize"}>
+          <button onClick={() => setMaximized(!maximized)} className="hover:text-white transition-colors" title={maximized ? "Restore" : "Maximize"}>
             {maximized ? <Minimize2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <Maximize2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
           </button>
-          <button onClick={() => setExpanded(!expanded)} title={expanded ? 'Collapse' : 'Expand'}>
-            {expanded ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
-          </button>
+          {onClose && <button onClick={onClose} className="rounded p-1 hover:bg-white/10 hover:text-white" title="Close"><X className="h-3.5 w-3.5 text-[#c3c8d2]" /></button>}
         </div>
       </div>
 
@@ -414,9 +353,10 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
               <div className="flex-1 min-h-0 flex flex-col gap-2">
                 {tickerStripBlock}
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-3 overflow-y-auto lg:overflow-hidden styled-scrollbar">
-                  <div className="min-h-0 lg:overflow-y-auto styled-scrollbar space-y-2 lg:pr-1">
+                  <div className="min-h-0 lg:overflow-y-auto styled-scrollbar space-y-3 lg:pr-1">
                     {chartBlock}
                     {!selected && sectionOverviewGrid}
+                    {!selected && marketPulseBlock}
                     {breadthBlock}
                     {scmBlock}
                     {spaceBlock}

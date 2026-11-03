@@ -1,3 +1,4 @@
+import { cachedRoute } from '@/lib/routeCache';
 import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
 
@@ -143,7 +144,7 @@ function parseGdacsRss(xml: string): WeatherEvent[] {
   return events;
 }
 
-export async function GET() {
+async function compute() {
   try {
     const [eonetRes, nwsRes, gdacsRes] = await Promise.allSettled([
       stealthFetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100', {
@@ -322,4 +323,8 @@ function averageCoordinates(coords?: number[][]) {
     lat: totals.lat / coords.length,
     lng: totals.lng / coords.length,
   };
+}
+
+export async function GET() {
+  return cachedRoute('src/app/api/weather/route.ts', 180000, () => compute());
 }

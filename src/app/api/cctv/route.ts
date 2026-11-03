@@ -1,3 +1,4 @@
+import { cachedRoute, keyOf } from '@/lib/routeCache';
 import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
 
@@ -555,7 +556,7 @@ function getRegionsForBounds(lat: number, lng: number, radius: number): string[]
   return regions.length > 0 ? regions : ['uk', 'us-east']; // Default fallback
 }
 
-export async function GET(request: Request) {
+async function compute(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const region = searchParams.get('region');
@@ -609,4 +610,8 @@ export async function GET(request: Request) {
     console.error('CCTV fetch error:', error);
     return NextResponse.json({ cameras: [], error: 'Failed' }, { status: 500 });
   }
+}
+
+export async function GET(request: Request) {
+  return cachedRoute(keyOf(request), 300000, () => compute(request));
 }

@@ -354,9 +354,25 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence, rai
   // Re-runs when focusNode changes, so clicking a second feed entry while the
   // panel is already open moves it rather than being ignored.
   useEffect(() => {
-    const target = focusNode || 'APP:Pokemon GO';
-    setInput(target);
-    fetchNode(target);
+    if (focusNode) {
+      setInput(focusNode);
+      fetchNode(focusNode);
+      return;
+    }
+    // No node picked: open on what DINGIR currently flags (top anomaly, else top item of the
+    // live feed) instead of a hardcoded demo node. Without a feed the panel stays empty.
+    let cancelled = false;
+    fetch('/api/reasoning/feed?once=1', { signal: AbortSignal.timeout(4000) })
+      .then(r => (r.ok ? r.json() : null))
+      .then((snap: { items?: { kind: string; nodes: string[] }[] } | null) => {
+        const items = snap?.items ?? [];
+        const pick = items.find(i => i.kind === 'ANOMALY' && i.nodes[0]) ?? items.find(i => i.nodes[0]);
+        if (cancelled || !pick) return;
+        setInput(pick.nodes[0]);
+        fetchNode(pick.nodes[0]);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [fetchNode, focusNode]);
 
   return (
@@ -364,7 +380,7 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence, rai
       <motion.div
         initial={{ x: 500, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 500, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed top-0 h-full z-[500] flex flex-col glass-panel"
+        className="fixed top-0 h-full z-[500] flex flex-col glass-panel bg-[#080c15]"
         style={{
           right: railWidth,
           // Expanded takes the viewport MINUS the rail. The 420px floor stops a

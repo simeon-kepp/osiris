@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, Maximize2, Minimize2, ExternalLink, AlertTriangle } from 'lucide-react';
+import { X, Loader2, Maximize2, Minimize2, ExternalLink, AlertTriangle, Download, Settings, History, ChevronRight } from 'lucide-react';
 import { useLocale } from '@/lib/LocaleProvider';
 import {
   buildChain, type MainshockForecast, type ForecastMethod, type ChainStep, type ChainStage,
 } from '@/lib/predictionChain';
+import { FORECAST_DOMAINS, FORECAST_STATUS_STYLE } from '@/lib/forecastDomains';
 
 // Standing forecasts, each one openable down to the arithmetic that produced it.
 //
@@ -39,6 +40,10 @@ type Forecast = {
   per_mainshock: MainshockForecast[];
   falsified_if?: string;
   scored?: unknown;
+  scored_at_utc?: string;
+  actual_count?: number;
+  within_95_interval?: boolean;
+  verdict?: string;
 };
 
 type Payload = {
@@ -48,6 +53,8 @@ type Payload = {
     runs: number; cases_scored: number; hits: number; misses: number;
     coverage: number | null; nominal_coverage: number | null; latest_run_at: string | null;
   };
+  live: { total: number; open: number; awaiting_score: number; scored: number; hits: number; misses: number; coverage: number | null };
+  worker: { worker?: string; last_cycle_at_utc?: string; last_success_at_utc?: string; next_issue_due_utc?: string; last_error?: string } | null;
   source: { malformed_lines_skipped: number; engine_has_not_run: boolean };
 };
 
@@ -95,8 +102,13 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [openChain, setOpenChain] = useState<string | null>(null);
+  const [selectedIssuedAt, setSelectedIssuedAt] = useState<string | null>(null);
+  // The audit trail is the primary product of this panel, not a hidden debug
+  // drawer. Keep it visible so the operator sees open/awaiting/scored rows.
+  const [showHistory, setShowHistory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  const width = expanded ? 900 : 460;
+  const width = expanded ? 1120 : 860;
   useEffect(() => { onWidthChange?.(width); }, [width, onWidthChange]);
   useEffect(() => () => onWidthChange?.(0), [onWidthChange]);
 
@@ -135,20 +147,48 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
   // rely on.
   const isAftershockForecast = (r: unknown): r is Forecast =>
     !!r && typeof r === 'object' && Array.isArray((r as { per_mainshock?: unknown }).per_mainshock);
-  const f = isAftershockForecast(data?.latest)
+  const forecastHistory = data?.history.filter(isAftershockForecast) ?? [];
+  const selected = selectedIssuedAt
+    ? forecastHistory.find(forecast => forecast.issued_at_utc === selectedIssuedAt) ?? null
+    : null;
+  const f = selected ?? (isAftershockForecast(data?.latest)
     ? data!.latest
-    : (data?.history.find(isAftershockForecast) ?? null);
+    : (forecastHistory[0] ?? null));
   const sb = data?.scoreboard;
-  const windowOpen = f ? new Date(f.target_window_utc[1]).getTime() > Date.now() : false;
+  const forecastState = f
+    ? (f.scored ? 'SCORED' : new Date(f.target_window_utc[1]).getTime() > Date.now() ? 'OPEN' : 'AWAITING_SCORE')
+    : null;
+  const windowOpen = forecastState === 'OPEN';
   // Sorted by probability, not by the engine's discovery order: the operator's
   // first question is "which of these is most likely", and a list that answers
   // it by position answers it before it is asked.
   const rows = f ? [...f.per_mainshock].sort(
     (a, b) => (b.percent_at_least_one ?? 0) - (a.percent_at_least_one ?? 0)) : [];
+  const tracked = forecastHistory.slice(0, 8);
   // Resolved from the id rather than stored as an object: if a poll replaces
   // the forecast while the modal is open, this follows the new record instead
   // of showing a stale copy of the old one.
   const chain = rows.find(m => m.mainshock_id === openChain) ?? null;
+
+  const exportHistory = () => {
+    if (!data) return;
+    const blob = new Blob([JSON.stringify(data.history, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `dingir-forecast-history-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const formatCountdown = (value?: string) => {
+    if (!value) return '—';
+    const seconds = Math.max(0, Math.floor((new Date(value).getTime() - Date.now()) / 1000));
+    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  };
 
   // Escape closes the modal. Registered only while it is open, so it cannot
   // swallow the key from the panel or the map underneath.
@@ -164,46 +204,82 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
       <motion.div
         initial={{ x: 500, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 500, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed top-0 h-full z-[498] flex flex-col glass-panel"
+        className="fixed top-0 h-full z-[498] flex flex-col glass-panel overflow-hidden bg-[#080c15]"
         style={{
+          left: 'auto',
           right: offsetRight,
-          width: `min(${width}px, ${expanded ? 95 : 92}vw)`,
+          width: expanded
+            ? `min(${width}px, calc(100vw - ${offsetRight}px))`
+            : `min(${width}px, 68vw)`,
           borderLeft: '1px solid var(--border-primary)',
           borderRadius: 0,
         }}
       >
         {/* ── header: the scoreboard first, because a forecast tool with no
             track record is a marketing surface ───────────────────────────── */}
-        <div className="flex items-start justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
-          <div>
+        <div className="px-5 py-4 border-b border-white/[0.08] shrink-0">
+          <div className="flex items-start justify-between mb-4">
+            <div>
             <div className="hud-text text-[13px] text-[var(--text-primary)]">
               {tr('pred.title')}
             </div>
-            <div className="text-[9px] text-[var(--text-muted)] tabular-nums tracking-wide">
-              {sb && sb.cases_scored > 0
-                ? `${sb.hits} hit · ${sb.misses} miss · ${((sb.coverage ?? 0) * 100).toFixed(0)}% coverage` +
-                  (sb.nominal_coverage ? ` vs ${(sb.nominal_coverage * 100).toFixed(0)}% nominal` : '') +
-                  ` · ${sb.cases_scored} scored`
-                : (error || tr('pred.loading'))}
+            <div className="mt-1 text-[9px] text-[#c3c8d2] tracking-wide">LIVE FORECAST CONTROL CENTER</div>
             </div>
-          </div>
           <div className="flex items-center gap-1">
             <button onClick={() => setExpanded(e => !e)} title={expanded ? 'Collapse' : 'Expand'}
               className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
-              {expanded ? <Minimize2 className="w-4 h-4 text-[var(--text-muted)]" />
-                        : <Maximize2 className="w-4 h-4 text-[var(--text-muted)]" />}
+              {expanded ? <Minimize2 className="w-4 h-4 text-[#c3c8d2]" />
+                        : <Maximize2 className="w-4 h-4 text-[#c3c8d2]" />}
             </button>
             <button onClick={onClose} title="Close"
               className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
-              <X className="w-4 h-4 text-[var(--text-muted)]" />
+              <X className="w-4 h-4 text-[#c3c8d2]" />
             </button>
+          </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y divide-white/[0.08] border border-white/[0.08]">
+            {[
+              { label: 'TREFFER / MISSES', value: sb && (sb.hits + sb.misses) > 0 ? `${((sb.hits / (sb.hits + sb.misses)) * 100).toFixed(1)}%` : '—', sub: sb ? `${sb.hits} / ${sb.hits + sb.misses}` : '—', color: 'text-white' },
+              { label: 'COVERAGE', value: sb?.coverage == null ? '—' : `${(sb.coverage * 100).toFixed(1)}%`, sub: 'WINDOW COVERAGE', color: 'text-white' },
+              { label: 'EVALUIERT', value: sb ? `${sb.hits + sb.misses}` : '—', sub: 'PROGNOSEN', color: 'text-white' },
+              { label: 'WORKER STATUS', value: data?.worker?.worker === 'running' ? '● RUNNING' : data?.worker?.worker === 'degraded' ? '● DEGRADED' : '● STOPPED', sub: data?.worker?.worker === 'running' ? 'PID ACTIVE' : 'CHECK LOG', color: data?.worker?.worker === 'running' ? 'text-[#00f5c4]' : 'text-[#ffd166]' },
+              { label: 'NÄCHSTE PROGNOSE', value: formatCountdown(data?.worker?.next_issue_due_utc), sub: 'AUTOMATISCH', color: 'text-white' },
+              { label: 'OPEN', value: `${data?.live?.open ?? 0}`, sub: 'PROGNOSEN', color: 'text-white' },
+              { label: 'AWAITING SCORE', value: `${data?.live?.awaiting_score ?? 0}`, sub: 'PROGNOSEN', color: 'text-white' },
+              { label: 'SCORED', value: `${data?.live?.scored ?? 0}`, sub: 'PROGNOSEN', color: 'text-white' },
+            ].map(stat => (
+              <div key={stat.label} className="px-3 py-3 min-w-0">
+                <div className="text-[8px] tracking-widest text-[#c3c8d2] whitespace-nowrap">{stat.label}</div>
+                <div className={`mt-2 text-[19px] leading-none tabular-nums whitespace-nowrap overflow-hidden text-ellipsis ${stat.color}`}>{stat.value}</div>
+                <div className="mt-1 text-[8px] text-[#c3c8d2] whitespace-nowrap">{stat.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="shrink-0 border-b border-white/[0.08] bg-[#080c15] px-5 py-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[10px] tracking-[.16em] text-white">FORECAST DOMAIN LANES</div>
+            <div className="font-mono text-[8px] text-[#aeb4c0]">EVIDENCE STATUS · NO FABRICATED SCORES</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+            {FORECAST_DOMAINS.map(domain => {
+              const style = FORECAST_STATUS_STYLE[domain.status];
+              return (
+                <div key={domain.id} className="min-w-0 rounded-lg border border-white/10 bg-[#0d1420] px-2.5 py-2">
+                  <div className="truncate font-mono text-[9px] tracking-wider text-white">{domain.label}</div>
+                  <div className={`mt-1 font-mono text-[8px] font-semibold ${style.className}`}>{style.label}</div>
+                  <div className="mt-1 line-clamp-2 font-mono text-[8px] leading-relaxed text-[#c3c8d2]" title={`${domain.question} · ${domain.evidence}`}>{domain.question}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* ── calibration line: over-coverage is a failure, and saying so here
             stops the scoreboard reading as a score to maximise ───────────── */}
         {sb && sb.coverage !== null && sb.nominal_coverage && (
-          <div className="px-4 py-2 border-b border-white/[0.06] shrink-0 text-[9px] tabular-nums leading-relaxed text-[var(--text-muted)]">
+          <div className="px-4 py-2 border-b border-white/[0.06] shrink-0 text-[9px] tabular-nums leading-relaxed text-[#c3c8d2]">
             {sb.coverage > sb.nominal_coverage + 0.15
               ? <span className="text-[#ffd166]">{tr('pred.overcovered')}</span>
               : sb.coverage < sb.nominal_coverage - 0.15
@@ -212,9 +288,40 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
           </div>
         )}
 
+        {/* The audit table is deliberately above the selected forecast: this
+            is a control center first, and a detail view second. */}
+        {showHistory && data && (
+          <div className="absolute left-3 right-3 bottom-14 z-20 max-h-[52%] overflow-hidden rounded-xl border border-white/[0.14] bg-[#080c15] shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-[11px] tracking-[0.16em] text-white">TRACKED FORECASTS</div>
+              <div className="text-[9px] font-mono text-[#aeb4c0]">{tracked.length} RECENT · AUTO-SCORED</div>
+            </div>
+            <div className="overflow-x-auto">
+              <div className="min-w-[680px]">
+                <div className="grid grid-cols-[1.45fr_1fr_.7fr_.7fr_24px] gap-3 px-2 pb-2 text-[8px] tracking-[.14em] text-[#aeb4c0]">
+                  <span>TIME WINDOW (UTC)</span><span>STATUS</span><span>HIT / MISS</span><span>EVENTS</span><span />
+                </div>
+                {tracked.map((forecast, forecastIndex) => {
+                  const state = forecast.scored ? 'SCORED' : new Date(forecast.target_window_utc[1]).getTime() > Date.now() ? 'OPEN' : 'AWAITING SCORE';
+                  const result = forecast.scored ? (forecast.within_95_interval ? 'HIT' : 'MISS') : '—';
+                  return (
+                    <button key={`${forecast.issued_at_utc}-${forecastIndex}`} onClick={() => { setSelectedIssuedAt(forecast.issued_at_utc); setOpenChain(null); }} className={`grid w-full grid-cols-[1.45fr_1fr_.7fr_.7fr_24px] items-center gap-3 rounded-lg border-t border-white/[.06] px-2 py-2.5 text-left text-[10px] tabular-nums hover:bg-white/[.06] ${f?.issued_at_utc === forecast.issued_at_utc ? 'bg-white/[.07]' : ''}`}>
+                      <span className="text-[#e2e5eb]">{forecast.target_window_utc[0].slice(0, 16).replace('T', ' ')} → {forecast.target_window_utc[1].slice(11, 16)}</span>
+                      <span className={state === 'OPEN' ? 'text-[#00f5c4]' : state === 'SCORED' ? 'text-[#7fd4ff]' : 'text-[#ffd166]'}>{state}</span>
+                      <span className={result === 'MISS' ? 'text-[#ff6b6b]' : result === 'HIT' ? 'text-[#00f5c4]' : 'text-[#aeb4c0]'}>{result}</span>
+                      <span className="text-[#c3c8d2]">{forecast.mainshocks_considered}</span>
+                      <ChevronRight className="h-3.5 w-3.5 text-[#c3c8d2]" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 min-h-0 overflow-y-auto">
           {!data && !error ? (
-            <div className="flex h-full items-center justify-center gap-2 px-6 text-[11px] text-[var(--text-muted)]">
+            <div className="flex h-full items-center justify-center gap-2 px-6 text-[11px] text-[#c3c8d2]">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> {tr('pred.loading')}
             </div>
           ) : error ? (
@@ -222,7 +329,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
               {error}
             </div>
           ) : !f ? (
-            <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-[var(--text-muted)]">
+            <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-[#c3c8d2]">
               {tr('pred.empty')}
             </div>
           ) : (
@@ -234,27 +341,39 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                     style={{ color: probColour(f.total_probabilities?.percent_at_least_one ?? 0) }}>
                     {(f.total_probabilities?.percent_at_least_one ?? 0).toFixed(1)}%
                   </span>
-                  <span className="text-[10px] text-[var(--text-muted)] tabular-nums">
+                  <span className="text-[10px] text-[#c3c8d2] tabular-nums">
                     {tr('pred.atleastone')}
                   </span>
                 </div>
-                <div className="mt-1.5 text-[10px] tabular-nums text-[var(--text-muted)] leading-relaxed">
+                <div className="mt-1.5 text-[10px] tabular-nums text-[#c3c8d2] leading-relaxed">
                   {tr('pred.expected')} {f.total_predicted_aftershocks} · 95%
                   [{f.total_interval_95[0]}, {f.total_interval_95[1]}] ·
                   {' '}{f.mainshocks_considered} {tr('pred.sequences')}
                   <br />
                   {fmtWindow(f.target_window_utc[0], f.target_window_utc[1])}
                   {' · '}
-                  <span className={windowOpen ? 'text-[var(--cyan-primary)]' : 'text-[var(--text-muted)]'}>
-                    {windowOpen ? tr('pred.open') : tr('pred.closed')}
+                  <span className={windowOpen ? 'text-[var(--cyan-primary)]' : 'text-[#c3c8d2]'}>
+                    {forecastState === 'OPEN' ? tr('pred.open') : forecastState === 'AWAITING_SCORE' ? tr('pred.awaiting') : forecastState === 'SCORED' ? tr('pred.scored') : tr('pred.closed')}
                   </span>
                 </div>
+                {forecastState === 'SCORED' && (
+                  <div className={`mt-2 text-[10px] font-bold tracking-widest ${f.within_95_interval ? 'text-[#00f5c4]' : 'text-[#ff6b6b]'}`}>
+                    {f.within_95_interval ? 'HIT' : 'MISS'} · actual {f.actual_count ?? '—'} · scored {f.scored_at_utc?.replace('T', ' ').slice(0, 16) ?? '—'} UTC
+                  </div>
+                )}
                 {f.falsified_if && (
                   <p className="mt-2 text-[10px] leading-relaxed text-[#ff9f43]">
                     <AlertTriangle className="inline w-3 h-3 mr-1 -mt-0.5" />
                     {f.falsified_if}
                   </p>
                 )}
+              </div>
+
+              <div className="px-4 pt-4 pb-2 border-b border-white/[0.06]">
+                <div className="text-[10px] tracking-widest text-[var(--text-primary)]">EREIGNISSE IM AUSGEWÄHLTEN FENSTER</div>
+                <div className="mt-2 grid grid-cols-[minmax(0,2fr)_0.8fr_0.9fr_auto] gap-3 text-[8px] tracking-widest text-[#c3c8d2]">
+                  <span>EREIGNIS</span><span>WAHRSCHEINLICHKEIT</span><span>ERWARTETE ANZAHL</span><span>KAUSALKETTE</span>
+                </div>
               </div>
 
               {/* ── one row per sequence ───────────────────────────────── */}
@@ -268,22 +387,23 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                     <button
                       onClick={() => onInspect?.(`QUAKE:${m.mainshock_id}`)}
                       title={tr('pred.title.hint')}
-                      className="block w-full text-left px-4 pt-2.5 pb-1 hover:bg-white/[0.03] transition-colors group">
-                      <span className="text-[11px] tabular-nums text-[var(--text-primary)] group-hover:text-[var(--cyan-primary)] transition-colors">
+                      className="grid w-full grid-cols-[minmax(0,2fr)_0.8fr_0.9fr_auto] items-center gap-3 text-left px-4 py-3 hover:bg-white/[0.03] transition-colors group">
+                      <span className="text-[11px] tabular-nums text-[var(--text-primary)] group-hover:text-[var(--cyan-primary)] transition-colors truncate">
                         M{m.mainshock_mag} · {m.mainshock_place}
                       </span>
+                      <span className="tabular-nums text-[15px]" style={{ color: probColour(pctv) }}>{pctv.toFixed(1)}%</span>
+                      <span className="text-[9px] tabular-nums text-[#c3c8d2]">{m.predicted_count} ± {Math.max(0.1, (hi - lo) / 4).toFixed(1)}</span>
+                      <span className="text-[9px] text-[#c3c8d2]">{m.aftershocks_observed_so_far} obs.</span>
                     </button>
 
                     {/* BODY -> the causality chain */}
-                    <button
+                    <div
                       onClick={() => setOpenChain(chainOpen ? null : m.mainshock_id)}
-                      title={tr('pred.body.hint')}
+                      onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') setOpenChain(chainOpen ? null : m.mainshock_id); }}
+                      role="button" tabIndex={0} title={tr('pred.body.hint')}
                       className={`block w-full text-left px-4 pb-2.5 hover:bg-white/[0.03] transition-colors ${chainOpen ? 'bg-white/[0.03]' : ''}`}>
                       <div className="flex items-baseline gap-2">
-                        <span className="tabular-nums text-[15px]" style={{ color: probColour(pctv) }}>
-                          {pctv.toFixed(1)}%
-                        </span>
-                        <span className="text-[9px] tabular-nums text-[var(--text-muted)]">
+                        <span className="text-[9px] tabular-nums text-[#c3c8d2]">
                           {tr('pred.expected')} {m.predicted_count} · 95% [{lo}, {hi}]
                         </span>
                         {m.verdict && (
@@ -295,14 +415,14 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                           </span>
                         )}
                       </div>
-                      <div className="mt-1 text-[9px] tabular-nums text-[var(--text-muted)]">
+                      <div className="mt-1 text-[9px] tabular-nums text-[#c3c8d2]">
                         {m.aftershocks_observed_so_far} {tr('pred.observed')} ·{' '}
                         {m.aftershock_zone_radius_km} km · {m.horizon_days}d ·{' '}
-                        <span className="text-[var(--cyan-primary)]">
+                        <button onClick={event => { event.stopPropagation(); setOpenChain(chainOpen ? null : m.mainshock_id); }} className="ml-1 rounded border border-[var(--cyan-primary)]/40 px-1.5 py-0.5 text-[var(--cyan-primary)] hover:bg-[var(--cyan-primary)]/10">
                           {chainOpen ? tr('pred.chain.hide') : tr('pred.chain.show')}
-                        </span>
+                        </button>
                       </div>
-                    </button>
+                    </div>
 
                   </div>
                 );
@@ -310,7 +430,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
 
               {/* ── method footer: the same for every row, so it is stated
                   once rather than nine times ─────────────────────────── */}
-              <div className="px-4 py-3 text-[9px] tabular-nums text-[var(--text-muted)] leading-relaxed">
+              <div className="px-4 py-3 text-[9px] tabular-nums text-[#c3c8d2] leading-relaxed">
                 {f.method.law}<br />
                 p={f.method.p_fitted_on_our_catalogue} (published {f.method.p_published_range[0]}–{f.method.p_published_range[1]}) ·
                 {' '}c={f.method.c_days_ASSUMED_not_fitted}d assumed · M≥{f.method.min_magnitude}<br />
@@ -321,6 +441,25 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                   </span></>
                 ) : null}
               </div>
+              <div className="sticky bottom-0 flex items-center justify-between gap-3 px-4 py-3 border-t border-white/[0.10] bg-[#0c1018]/95 backdrop-blur-md text-[9px] shrink-0">
+                <div className="text-[#c3c8d2]">AUTO-UPDATE <span className="text-[#00f5c4]">● Aktiv</span></div>
+                <div className="flex items-center gap-4">
+                  <button onClick={() => setShowHistory(v => !v)} className="flex items-center gap-1.5 text-[#c3c8d2] hover:text-[var(--cyan-primary)] transition-colors">
+                    <History className="w-3 h-3" /> {showHistory ? 'HISTORIE AUSBLENDEN' : 'HISTORIE'}
+                  </button>
+                  <button onClick={exportHistory} className="flex items-center gap-1.5 text-[#c3c8d2] hover:text-[var(--cyan-primary)] transition-colors">
+                    <Download className="w-3 h-3" /> HISTORIE EXPORTIEREN
+                  </button>
+                  <button onClick={() => setShowSettings(v => !v)} className="flex items-center gap-1.5 text-[#c3c8d2] hover:text-[var(--cyan-primary)] transition-colors">
+                    <Settings className="w-3 h-3" /> EINSTELLUNGEN
+                  </button>
+                </div>
+              </div>
+              {showSettings && (
+                <div className="sticky bottom-0 px-4 py-3 border-t border-white/[0.08] bg-[#101520] text-[9px] text-[#c3c8d2] leading-relaxed">
+                  Forecast-Ausgabe: alle 6 Stunden · Score-Prüfung: alle 5 Minuten · Quelle: USGS ComCat · Historische Einträge bleiben unveränderlich.
+                </div>
+              )}
             </>
           )}
         </div>
@@ -362,7 +501,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                   <div className="mt-1 text-[12px] text-[var(--text-primary)] break-words">
                     M{chain.mainshock_mag} · {chain.mainshock_place}
                   </div>
-                  <div className="mt-1 text-[11px] text-[var(--text-muted)] tabular-nums">
+                  <div className="mt-1 text-[11px] text-[#c3c8d2] tabular-nums">
                     <span style={{ color: probColour(chain.percent_at_least_one ?? 0) }}>
                       {(chain.percent_at_least_one ?? 0).toFixed(1)}%
                     </span>
@@ -372,7 +511,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                 </div>
                 <button onClick={() => setOpenChain(null)} title={tr('pred.chain.close')}
                   className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
-                  <X className="w-4 h-4 text-[var(--text-muted)]" />
+                  <X className="w-4 h-4 text-[#c3c8d2]" />
                 </button>
               </div>
 
@@ -382,19 +521,19 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 shrink-0 rounded-full"
                         style={{ background: STAGE_COLOUR[s.stage] }} />
-                      <span className="text-[9px] tracking-[0.2em] text-[var(--text-muted)]">
+                      <span className="text-[9px] tracking-[0.2em] text-[#c3c8d2]">
                         {s.stage.toUpperCase()}
                       </span>
                       {/* Position in the chain, so a reader can see how far
                           the inference has travelled from the observation. */}
-                      <span className="ml-auto text-[9px] tabular-nums text-[var(--text-muted)]">
+                      <span className="ml-auto text-[9px] tabular-nums text-[#c3c8d2]">
                         {i + 1}/{all.length}
                       </span>
                     </div>
                     <div className="mt-1.5 text-[13px] text-[var(--text-primary)] leading-snug break-words">
                       {s.headline}
                     </div>
-                    <p className="mt-1.5 text-[12px] text-[var(--text-muted)] leading-relaxed break-words">
+                    <p className="mt-1.5 text-[12px] text-[#c3c8d2] leading-relaxed break-words">
                       {s.detail}
                     </p>
                     {s.caveat && (

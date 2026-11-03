@@ -76,7 +76,7 @@ export default function AstraPanel({ onGeolocate, isOpen = true, onClose, isMobi
   };
 
   const panelContent = (
-    <div className={`flex flex-col bg-[#0b0f19]/95 backdrop-blur-md border border-[var(--cyan-primary)]/20 shadow-[0_0_15px_rgba(0,229,255,0.1)] rounded-lg overflow-hidden ${isMobile ? 'h-full' : 'w-80 max-h-[85vh]'}`}>
+    <div className="flex flex-col h-full min-h-0 bg-[#0b0f19]/95 backdrop-blur-md border border-[var(--cyan-primary)]/20 shadow-[0_0_15px_rgba(0,229,255,0.1)] rounded-lg overflow-hidden">
       
       {/* HEADER */}
       <div className="flex justify-between items-center p-3 border-b border-[var(--cyan-primary)]/20 bg-[#151b2b]">

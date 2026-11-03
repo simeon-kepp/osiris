@@ -1,7 +1,5 @@
-/* Fonts are self-hosted via next/font in layout.tsx. The @import that used to
-   sit here never arrived, so every weight stayed unloaded and the browser fell
-   through to the system sans. It was also a third-party request on every page
-   load, which this project should not be making. */
+/* Fonts stay local/system-resolved so production builds do not depend on an
+   external font service being reachable. */
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -63,11 +61,6 @@
   --hover-accent: rgba(var(--gold-rgb), 0.08);
 
   /* ── Fonts ── */
-  /* next/font injects --font-hud-src / --font-body-src on <html> with the
-     self-hosted family name. Referenced rather than overwritten so the
-     fallback chain stays visible, and so a missing font degrades to a
-     deliberate choice instead of silently to the system sans (which on
-     Linux is Roboto -- the bug this replaced). */
   /* HUD is Inter too, deliberately, after this came back three times in live
      feedback. The HUD look was never carried by the monospace family -- it is
      the uppercase, the 0.15em tracking and the small sizes doing that work,
@@ -75,15 +68,14 @@
      digits that do not jitter as telemetry ticks, and `font-variant-numeric:
      tabular-nums` below buys that back without the typewriter texture.
 
-     JetBrains Mono is still loaded and still reachable as --font-code, NOT as
-     --font-mono: Tailwind's `font-mono` utility is mapped to --font-hud in the
+     Tailwind's `font-mono` utility is mapped to --font-hud in the
      @theme block below, so naming it --font-mono here would silently fight
      that mapping. Anything that truly needs character-cell alignment (an ASCII
      table, a diff, a hex dump) asks for --font-code explicitly, rather than
      inheriting monospace by accident -- which is how it landed on prose. */
-  --font-hud: var(--font-body-src), 'Inter', -apple-system, sans-serif;
-  --font-body: var(--font-body-src), 'Inter', -apple-system, sans-serif;
-  --font-code: var(--font-hud-src), 'JetBrains Mono', 'Courier New', monospace;
+  --font-hud: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-code: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Courier New', monospace;
 
   /* ── Spacing (responsive) ── */
   --panel-gap: 12px;

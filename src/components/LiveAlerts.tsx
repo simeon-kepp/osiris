@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ChevronDown, ChevronUp, MapPin, ExternalLink, AlertTriangle,
+  MapPin, ExternalLink, AlertTriangle, X,
   Newspaper, Clock, Radio, Maximize2, Minimize2
 } from 'lucide-react';
 import AiOverview from './AiOverview';
@@ -13,6 +13,7 @@ interface LiveAlertsProps {
   data: any;
   onLocate: (lat: number, lng: number) => void;
   onWatchFeed?: (url: string, name: string) => void;
+  onClose?: () => void;
 }
 
 const RISK_COLORS: Record<string, string> = {
@@ -23,8 +24,8 @@ const RISK_COLORS: Record<string, string> = {
   LOW: '#00E676',
 };
 
-export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsProps) {
-  const [expanded, setExpanded] = useState(true);
+export default function LiveAlerts({ data, onLocate, onWatchFeed, onClose }: LiveAlertsProps) {
+  const [expanded] = useState(true);
   const [maximized, setMaximized] = useState(false);
   const [filter, setFilter] = useState<'all' | 'news' | 'quakes' | 'feeds'>('all');
 
@@ -120,14 +121,11 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: 0.5, duration: 0.6 }}
-      className={`glass-panel flex flex-col overflow-hidden pointer-events-auto transition-all duration-300 ${maximized ? 'fixed inset-4 z-[9999] bg-[#0a0a09]/95 backdrop-blur-3xl' : 'shrink-0 h-[500px] max-h-[80vh] resize-y'}`}
+      className={`glass-panel flex flex-col overflow-hidden pointer-events-auto transition-all duration-300 h-full min-h-0 ${maximized ? 'fixed inset-4 z-[9999] bg-[#0a0a09]/95 backdrop-blur-3xl' : ''}`}
     >
       {/* Header - Fixed Height, Never Shrinks */}
       <div
-        onClick={() => setExpanded(!expanded)}
-        role="button"
-        tabIndex={0}
-        className="flex-shrink-0 flex items-center justify-between px-3 py-2 hover:bg-[var(--hover-accent)] transition-colors cursor-pointer outline-none border-b border-[rgba(255,255,255,0.05)] bg-[rgba(0,0,0,0.3)]"
+        className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-[rgba(255,255,255,0.05)] bg-[#0a0f19]"
       >
         <div className="flex items-center gap-2">
           <Radio className="w-3.5 h-3.5 text-[#FF4081]" />
@@ -137,10 +135,10 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
         </div>
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-[#FF4081] animate-osiris-pulse" />
-          <button onClick={(e) => { e.stopPropagation(); setMaximized(!maximized); if (!expanded && !maximized) setExpanded(true); }} className="hover:text-white transition-colors" title={maximized ? "Restore" : "Maximize"}>
+          <button onClick={(e) => { e.stopPropagation(); setMaximized(!maximized); }} className="hover:text-white transition-colors" title={maximized ? "Restore" : "Maximize"}>
             {maximized ? <Minimize2 className="w-3 h-3 text-[var(--text-muted)]" /> : <Maximize2 className="w-3 h-3 text-[var(--text-muted)]" />}
           </button>
-          {expanded ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
+          {onClose && <button onClick={onClose} className="rounded p-1 hover:bg-white/10" title="Close"><X className="h-3.5 w-3.5 text-[#c3c8d2]" /></button>}
         </div>
       </div>
 

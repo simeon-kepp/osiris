@@ -56,3 +56,9 @@ scanner_backend_backup.js
 
 # Security - Prevent accidental manual leaks
 *Manual*.md
+
+# local backups and logs, never published (repo is public)
+.env*.bak*
+.env.local.*
+.next.bak*/
+logs/

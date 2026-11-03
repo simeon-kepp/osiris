@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { RegionId } from '@/lib/regions';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, Telescope, MessageSquare, LogIn, LogOut } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, Telescope, MessageSquare, LogIn, LogOut, Info } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -32,7 +32,9 @@ const ReasoningFeed = dynamic(() => import('@/components/ReasoningFeed'));
 const PredictionPanel = dynamic(() => import('@/components/PredictionPanel'));
 const AiAnalyst = dynamic(() => import('@/components/AiAnalyst'));
 const EvidencePanel = dynamic(() => import('@/components/EvidencePanel'));
+const CapabilitiesPanel = dynamic(() => import('@/components/CapabilitiesPanel'));
 import { useLocale } from '@/lib/LocaleProvider';
+import SidePanelFrame from '@/components/layout/SidePanelFrame';
 
 // Total raw GeoJSON the dashboard will hold from ArcGIS at once. Measured the
 // hard way: importing six full-attribute layers killed the renderer (Chrome
@@ -179,6 +181,10 @@ export default function Dashboard() {
   const [showReasoningPanel, setShowReasoningPanel] = useState(false);
   const [showReasoningFeed, setShowReasoningFeed] = useState(false);
   const [showPredictions, setShowPredictions] = useState(false);
+  // Static info modal ("What the model can be used for") — no gate, no data
+  // fetch, so it does not participate in the mutual-exclusion closing pattern
+  // the live panels use.
+  const [showCapabilities, setShowCapabilities] = useState(false);
   // ── the right-hand rail ────────────────────────────────────────────────────
   // Rail tools (forecast, feed) stack outward from the right edge; the whitebox
   // panel opens beside the stack rather than on top of it. Each tool REPORTS its
@@ -188,7 +194,11 @@ export default function Dashboard() {
   // it. A reported number cannot go stale that way.
   const [predWidth, setPredWidth] = useState(0);
   const [feedWidth, setFeedWidth] = useState(0);
-  const railWidth = predWidth + feedWidth;
+  // The icon rail owns the last 56px of the viewport. Every slide-out panel
+  // must reserve that space, otherwise its solid surface sits underneath the
+  // controls and makes the rail look broken.
+  const toolRailWidth = 56;
+  const railWidth = predWidth + feedWidth + toolRailWidth;
   // Set when a feed entry is clicked, so the reasoning panel opens on that node
   // instead of the default. The feed says what DINGIR noticed; the panel is
   // where you go to check whether it is right.
@@ -1464,7 +1474,20 @@ export default function Dashboard() {
 
 
       {/* ── RIGHT TOOL STRIP (desktop only — mobile uses bottom nav) ── */}
-      {!isMobile && <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-[250] pointer-events-auto bg-black/40 backdrop-blur-sm p-1 rounded-full border border-white/5">
+      {!isMobile && <div className="absolute right-2 top-[72px] bottom-[64px] flex flex-col justify-center gap-1 z-[250] pointer-events-none before:content-[''] before:absolute before:-right-2 before:top-1/2 before:-translate-y-1/2 before:h-[min(520px,100%)] before:w-12 before:rounded-full before:bg-black/40 before:backdrop-blur-sm before:border before:border-white/5 before:pointer-events-none [&>*]:pointer-events-auto">
+        {/* Search is the primary entry point and therefore always stays first. */}
+        <div className="relative group">
+          <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.search.title')}>
+            <Search className={`w-4 h-4 ${showDesktopSearch ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.search')}</span>
+          <AnimatePresence>
+            {showDesktopSearch && (
+              <SidePanelFrame><SearchBar alwaysExpanded onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setShowDesktopSearch(false); }} /></SidePanelFrame>
+            )}
+          </AnimatePresence>
+        </div>
+        <div className="w-4 h-px bg-white/10 mx-auto" />
         <div className="relative group">
           <button onClick={() => { setShowIntel(!showIntel); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showIntel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.osint.title')}>
             <Radar className={`w-4 h-4 ${showIntel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
@@ -1472,17 +1495,15 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.osint')}</span>
           <AnimatePresence>
             {showIntel && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
-                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
-                  <OsintPanel onSweepVisualize={setSweepData} onScanGeolocate={(target, data) => {
+                <SidePanelFrame>
+                  <OsintPanel onClose={() => setShowIntel(false)} onSweepVisualize={setSweepData} onScanGeolocate={(target, data) => {
                   setScanTargets(prev => {
                     const existing = prev.filter(t => t.id !== target);
                     return [{ id: target, timestamp: Date.now(), ...data }, ...existing].slice(0, 10);
                   });
                   setFlyToLocation({ lat: data.lat, lng: data.lng, ts: Date.now() });
                 }} />
-                </div>
-              </motion.div>
+                </SidePanelFrame>
             )}
           </AnimatePresence>
         </div>
@@ -1494,11 +1515,7 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.markets')}</span>
           <AnimatePresence>
             {showMarkets && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
-                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
-                  <MarketsPanel data={data} spaceWeather={spaceWeather} />
-                </div>
-              </motion.div>
+              <SidePanelFrame><MarketsPanel data={data} spaceWeather={spaceWeather} onClose={() => setShowMarkets(false)} /></SidePanelFrame>
             )}
           </AnimatePresence>
         </div>
@@ -1510,11 +1527,7 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.alerts')}</span>
           <AnimatePresence>
             {showAlerts && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
-                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
-                  <LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} />
-                </div>
-              </motion.div>
+              <SidePanelFrame><LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} onClose={() => setShowAlerts(false)} /></SidePanelFrame>
             )}
           </AnimatePresence>
         </div>
@@ -1524,6 +1537,16 @@ export default function Dashboard() {
             <Network className={`w-4 h-4 ${showEntityGraph ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.graph')}</span>
+        </div>
+
+        {/* Static info modal, not a data panel — what the model can be used
+            for, straight from the pitch deck's own six-category slide. Public,
+            ungated, and does not close/interact with the live panels. */}
+        <div className="relative group">
+          <button onClick={() => setShowCapabilities(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10" title={tr('tool.capabilities.title')}>
+            <Info className="w-4 h-4 text-white/60" />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.capabilities')}</span>
         </div>
 
         {/* Gated: the reasoning panel exposes DINGIR's trained embedding space.
@@ -1586,18 +1609,16 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.route')}</span>
         </div>
 
-        <div className="relative group">
+        <div className="relative group hidden">
           <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.search.title')}>
             <Search className={`w-4 h-4 ${showDesktopSearch ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.search')}</span>
           <AnimatePresence>
             {showDesktopSearch && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
-                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
+              <SidePanelFrame>
                   <SearchBar alwaysExpanded onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setShowDesktopSearch(false); }} />
-                </div>
-              </motion.div>
+              </SidePanelFrame>
             )}
           </AnimatePresence>
         </div>
@@ -1613,8 +1634,7 @@ export default function Dashboard() {
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.remote')}</span>
           <AnimatePresence>
             {showRemote && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="fixed right-14 top-[72px] bottom-[64px] z-[220] w-80 flex flex-col pointer-events-none">
-                <div className="w-full flex-1 min-h-0 overflow-y-auto styled-scrollbar pointer-events-auto">
+              <SidePanelFrame>
                   <WorldRemote onClose={() => setShowRemote(false)} onPlaceOnMap={(devs) => {
                   setScanTargets(prev => {
                     const ids = new Set(prev.map((t: any) => t.id));
@@ -1624,8 +1644,7 @@ export default function Dashboard() {
                   });
                   if (devs.length > 0) setFlyToLocation({ lat: devs[0].lat, lng: devs[0].lng, ts: Date.now() });
                 }} />
-                </div>
-              </motion.div>
+              </SidePanelFrame>
             )}
           </AnimatePresence>
         </div>
@@ -1946,6 +1965,7 @@ export default function Dashboard() {
       {dingirLogin && evidenceNode && (
         <EvidencePanel
           node={evidenceNode}
+          rightOffset={showReasoningPanel ? railWidth + 520 : 0}
           onOpenNode={(id) => setEvidenceNode(id)}
           onClose={() => setEvidenceNode(null)}
         />
@@ -1969,11 +1989,13 @@ export default function Dashboard() {
           targets -- collapsing them into one click loses one of them. */}
       {showPredictions && (
         <PredictionPanel
+          offsetRight={toolRailWidth}
           onWidthChange={setPredWidth}
           onInspect={id => { setReasoningFocus(id); setShowReasoningPanel(true); }}
           onClose={() => setShowPredictions(false)}
         />
       )}
+
 
       {/* ── OVERLAYS ── */}
       <div className="vignette absolute inset-0 pointer-events-none z-[2]" />
@@ -1993,6 +2015,9 @@ export default function Dashboard() {
 
       {/* Keyboard Shortcuts Overlay */}
       <KeyboardShortcuts />
+
+      {/* "What the model can be used for" — static info modal, toggled from the right tool strip */}
+      {showCapabilities && <CapabilitiesPanel isOpen={showCapabilities} onClose={() => setShowCapabilities(false)} />}
 
       {/* ── GLOBAL STATUS TICKER (bottom) ── */}
       <GlobalStatusBar />

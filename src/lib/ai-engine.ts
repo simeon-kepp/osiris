@@ -117,7 +117,29 @@ export interface IntelligenceContext {
 // PREDICTED, and a language head that flattens those three into confident prose
 // makes the classification decorative. The persona below is bound to the same
 // epistemic discipline the graph is.
-const SYSTEM_PROMPT = `You are the DINGIR analyst. DINGIR is a whitebox world model: everything it holds is either something a source stated, something computed from something a source stated, or something the model guessed. Your entire job is to answer without ever blurring those three together.
+const SYSTEM_PROMPT = `## WHO YOU ARE IN THIS CHAT
+This chat is the operator's only way to talk to DINGIR. It is a conversation first: talk like a sharp colleague who happens to sit on top of a queryable data warehouse of live feeds (earthquakes, news/OSINT, threats, cyber alerts, markets) and the evidence graph. The operator may be a founder, an investor or an analyst, so be useful in the first sentence.
+
+You can do three things, and the question decides which:
+1. Talk normally. Small talk, opinions, explanations, brainstorming, general knowledge: answer like a person would, without dragging the data in. No provenance labels on general knowledge.
+2. Answer from the data. Questions about what is happening, counts, regions, the graph: answer from CURRENT OPERATIONAL DATA in the system message.
+3. Use the web. When WEB RESULTS or FETCHED PAGES are present, they are pages the search or the operator's link returned this turn. Use them for anything the feeds do not hold and cite each one as a markdown link [site](url). Never claim you searched when neither is present; say instead that the web switch in the chat header turns search on.
+
+## HOW YOU TALK
+- LANGUAGE: reply in the language of the operator's LAST message (the line after "Operator:"). English in, English out; German in, German out. Ignore the language of the data and of these instructions. If unsure, English.
+- Natural and direct, like a colleague. A greeting gets a one-line greeting back, no "how are you", no "how can I help" in any language ("Wie kann ich dir helfen/behilflich sein?" included); a light remark about what is going on in the data is better. Never open with a greeting or "I am ready" otherwise.
+- Use the conversation. "And in Europe?", "why?", "show me the second one", "what changed since" refer to your previous answer: resolve them against it and the context instead of starting over.
+- The earlier turns of this chat are real messages above the current one. Read them before answering.
+- On a data question, answer on the topic asked, from the data. "Cyber" means the CYBER ALERTS section and cyber items in news/OSINT first. If the data holds nothing on it, say that in one sentence and name the closest relevant thing you do have. Never pad with unrelated items.
+- Be smart about the data: count, rank, group by region or source, compare, flag what is unusual (a cluster of quakes in one place, a risk score that stands out, a region appearing in several feeds). Connect feeds when a real link exists and say what the link is; if it is only co-location, say so.
+- FOLLOW-UPS: only about every second or third answer, and never in the same shape twice in a row. Look at your previous turns in this conversation and do not reuse their wording or sentence pattern (no repeated "Would you like to know more about..."). Vary it: sometimes a concrete next query, sometimes a sharp observation that invites a reply, sometimes a comparison to try, sometimes a question about what the operator is deciding, sometimes nothing at all. Every suggestion must be answerable from this data. Never for small talk or dead ends.
+- Length: match the question. A short question gets a short answer; 2 to 6 sentences or a short list is the usual size. Go long when asked to explain, compare or brief. Use bold sparingly for key entities and numbers.
+- No report structure in conversation: no "Answer / Evidence / Falsification" headings unless the operator asks for an analysis.
+- The provenance classes are your discipline, not your vocabulary. Never write OBSERVED, DERIVED or PREDICTED as words in a conversational answer; say it the way a person would: "laut USGS" / "per USGS", "computed from the place name", "that is a guess, nothing in the data links them".
+- "Why" questions: the feeds hold events, not causes, so explain with general knowledge (plate tectonics, seasons, how markets react, known history), clearly as background ("in general..."), then tie it back to what the data shows. Refusing to explain because the data has no cause field is the wrong answer. If it needs current facts, offer the web search.
+- Provenance rules below apply to every factual claim about the data, the graph or the web, and PREDICTED edges are always labelled as hypotheses, but state them briefly instead of as a lecture.
+
+You are the DINGIR analyst. DINGIR is a whitebox world model: everything it holds is either something a source stated, something computed from something a source stated, or something the model guessed. Your entire job is to answer without ever blurring those three together.
 
 ## THE PROVENANCE RULE — this outranks every other instruction here
 Every fact in your context carries a provenance class. You must carry it through into your answer.
@@ -125,14 +147,15 @@ Every fact in your context carries a provenance class. You must carry it through
 - **OBSERVED** — a source stated this. You may assert it. Name the source when the context gives one.
 - **DERIVED** — computed from a stated field by a named rule (e.g. a country parsed out of a free-text place string). Assert it, and say it was computed and by what rule. A derivation can be wrong even when the underlying record is right.
 - **PREDICTED** — the model expects a relation for which NO edge exists. This is a hypothesis and nothing else. Never state it as fact, never let it carry an argument, never let it appear in a summary sentence without the word "hypothesis" or "predicted" attached. If a prediction is the only support for a conclusion, the honest answer is that there is no support for that conclusion.
+- **WEB** — a page from WEB RESULTS or FETCHED PAGES. It is OBSERVED for what that page says, not for whether it is true: cite the link, and say when only one site carries a claim.
 
 If asked something the context cannot answer, say so plainly and say what would be needed. "The graph does not contain this" is a complete and useful answer. An assembled-sounding answer built from weak links is worse than no answer, because the reader cannot see which part was weak.
 
 ## WHAT YOU ARE FOR
 The point is early warning that a person can check. A chain like "sustained heat -> accelerated snowmelt -> river rise -> put sandbags out now" is worth stating only if each link is visible and classed. State the chain, then state which links are OBSERVED and which are your inference, and where the chain would break.
 
-## HOW TO ANSWER
-- Lead with the answer, then the evidence for it, then what would falsify it.
+## HOW TO ANSWER AN ANALYSIS QUESTION
+- Lead with the answer, then the evidence for it, and, when the operator is weighing a conclusion, what would falsify it.
 - Distinguish correlation from causation explicitly. Two events in one region is a coincidence until something connects them.
 - State confidence, and state what it is based on — the number of supporting OBSERVED edges, not a feeling. If the context reports the model's held-out AUC, treat that as the ceiling on how much any PREDICTED edge is worth, and say so.
 - Plain language over jargon. No tactical notation, no brevity codes, no house style that makes a guess sound like a finding.
@@ -184,7 +207,7 @@ function serializeContext(context: IntelligenceContext): string {
 
   if (context.earthquakes.length > 0) {
     sections.push(`\n[SEISMIC DATA — ${context.earthquakes.length} events]`);
-    for (const eq of context.earthquakes.slice(0, 20)) {
+    for (const eq of context.earthquakes.slice(0, 100)) {
       const tsunamiFlag = eq.tsunami ? ' TSUNAMI' : '';
       const alertFlag = eq.alert ? ` [ALERT:${eq.alert.toUpperCase()}]` : '';
       sections.push(
@@ -195,17 +218,18 @@ function serializeContext(context: IntelligenceContext): string {
 
   if (context.news.length > 0) {
     sections.push(`\n[OSINT NEWS FEED — ${context.news.length} items]`);
-    for (const item of context.news.slice(0, 15)) {
+    for (const item of context.news.slice(0, 80)) {
       const coords = item.coords ? ` | GEO:${item.coords[0].toFixed(2)},${item.coords[1].toFixed(2)}` : '';
       sections.push(
-        `  RISK:${item.risk_score}/10 | ${item.source} | ${item.title}${coords} | ${item.published}`
+        `  RISK:${item.risk_score}/10 | ${item.source} | ${item.title}${coords} | ${item.published}` +
+          (item.description && item.description !== item.title ? `\n      ${item.description.replace(/\s+/g, ' ').slice(0, 240)}` : '')
       );
     }
   }
 
   if (context.threats.length > 0) {
     sections.push(`\n[THREAT EVENTS — ${context.threats.length} active]`);
-    for (const threat of context.threats.slice(0, 15)) {
+    for (const threat of context.threats.slice(0, 60)) {
       sections.push(
         `  ${threat.severity} | ${threat.type} | ${threat.title} | ${threat.region} | ${threat.timestamp}`
       );
@@ -214,7 +238,7 @@ function serializeContext(context: IntelligenceContext): string {
 
   if (context.cyberAlerts.length > 0) {
     sections.push(`\n[CYBER ALERTS — ${context.cyberAlerts.length} active]`);
-    for (const alert of context.cyberAlerts.slice(0, 10)) {
+    for (const alert of context.cyberAlerts.slice(0, 50)) {
       sections.push(
         `  ${alert.id} | ${alert.severity} | ${alert.vendor}/${alert.product} | ${alert.name} | Due:${alert.due}`
       );
@@ -285,6 +309,8 @@ function serializeContext(context: IntelligenceContext): string {
   return sections.join('\n');
 }
 
+import { LLM_MODELS } from './llm-models';
+
 /* ─────────────────────────────────────────────────────────────
    Provider seam
 
@@ -293,11 +319,28 @@ function serializeContext(context: IntelligenceContext): string {
    has to.
    ───────────────────────────────────────────────────────────── */
 
+/** One earlier turn of the chat. Sent as real alternating messages: pasted into
+ *  the user prompt as "Operator: ... DINGIR: ..." the model read the whole chat
+ *  as one document and answered it like a report, not like a reply. */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface CompleteOptions {
+  maxTokens?: number;
+  history?: ChatTurn[];
+  /** Ask the provider to search the web first. Ignored where unsupported. */
+  webSearch?: boolean;
+}
+
 export interface LlmProvider {
   /** Shown in the UI so the operator always knows who answered. */
   label: string;
   model: string;
-  complete(system: string, user: string): Promise<string>;
+  /** Only OpenRouter has a web-search plugin today. NIM and Gemini do not. */
+  supportsWebSearch?: boolean;
+  complete(system: string, user: string, options?: CompleteOptions): Promise<string>;
 }
 
 const NIM_BASE = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
@@ -321,16 +364,39 @@ const NIM_BASE = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.co
 // in the same model family as the previous default, ~9x smaller.
 // Override with NVIDIA_MODEL; a wrong handle fails loudly with a 404 naming
 // the provider rather than silently degrading.
-const NIM_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct';
+// PROBED against the configured NVIDIA key on 2026-09-02. The previously
+// selected Nemotron handles returned 410 Gone because NVIDIA retired them;
+// nvidia/nemotron-3.5-lightning-30b-a3b is currently answering on the same
+// free NIM tier. It is a real Nemotron handle, not a Mistral fallback.
+// Keep it configurable because trial entitlements can change independently of
+// the application, but never silently fall back to a retired model.
+const NIM_MODEL = process.env.NVIDIA_MODEL || 'nvidia/nemotron-3.5-lightning-30b-a3b';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+// PROBED 2026-10-10: openai/gpt-oss-*:free no longer exists on OpenRouter (404 "unavailable for
+// free"). The paid openai/gpt-oss-120b answered in ~0.9s at ~$0.00004 per 1k tokens, which is the
+// closest thing to free that is also fast. Default is now google/gemini-2.5-flash (~0.8s on a short prompt, stronger than -lite at synthesising across feeds;
+// no reasoning phase, so no hidden-thinking latency); gpt-oss stays selectable via OPENROUTER_MODEL.
+const OPENROUTER_BASE = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
 
 /** OpenAI-compatible chat completions. Covers NVIDIA NIM and anything speaking
  *  the same protocol, which is most self-hosted inference today. */
-function openAiCompatible(apiKey: string, base: string, model: string, label: string): LlmProvider {
+function openAiCompatible(
+  apiKey: string,
+  base: string,
+  model: string,
+  label: string,
+  extraBody: Record<string, unknown> = { chat_template_kwargs: { enable_thinking: false } },
+  webCapable = false
+): LlmProvider {
   return {
     label,
     model,
-    async complete(system, user) {
+    supportsWebSearch: webCapable,
+    async complete(system, user, options = {}) {
+      // PROBED 2026-11-03 on google/gemini-2.5-flash: 3 results, ~2s, ~$0.008 a call,
+      // sources come back as inline markdown links.
+      const web = webCapable && options.webSearch ? { plugins: [{ id: 'web', max_results: 4 }] } : {};
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -341,15 +407,21 @@ function openAiCompatible(apiKey: string, base: string, model: string, label: st
           model,
           messages: [
             { role: 'system', content: system },
+            ...(options.history ?? []),
             { role: 'user', content: user },
           ],
           temperature: 0.2,     // an analyst, not a writer
-          max_tokens: 2048,
+          max_tokens: options.maxTokens ?? 2048,
           stream: false,
+          // Lightning supports the OpenAI-compatible template switch. Without
+          // this, its default thinking trace consumes the same generation
+          // budget as the visible answer and can truncate a simple response.
+          ...extraBody,
+          ...web,
         }),
         // Generous: a 70B on a free tier is not fast, and failing at 30s would
         // look like a broken integration rather than a slow one.
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(options.maxTokens && options.maxTokens < 1000 ? 45_000 : 120_000),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
@@ -369,7 +441,7 @@ function gemini(apiKey: string): LlmProvider {
   return {
     label: 'Gemini',
     model: GEMINI_MODEL,
-    async complete(system, user) {
+    async complete(system, user, options = {}) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
@@ -377,10 +449,13 @@ function gemini(apiKey: string): LlmProvider {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: 'user', parts: [{ text: user }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+            contents: [
+              ...(options.history ?? []).map(t => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.content }] })),
+              { role: 'user', parts: [{ text: user }] },
+            ],
+            generationConfig: { temperature: 0.2, maxOutputTokens: options.maxTokens ?? 2048 },
           }),
-          signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(options.maxTokens && options.maxTokens < 1000 ? 45_000 : 120_000),
         }
       );
       if (!res.ok) {
@@ -423,14 +498,31 @@ function envKeys(prefix: string): string[] {
  * sync with the key: an `nvapi-` key is a NIM key, anything else is treated as
  * Gemini. Getting this wrong is loud (401 naming the provider), not silent.
  */
-export function resolveProvider(userKey?: string): LlmProvider | null {
+export function resolveProvider(userKey?: string, modelChoice?: string): LlmProvider | null {
   const k = userKey?.trim();
+  const choice = LLM_MODELS.find(m => m.id === modelChoice?.trim());
   if (k) {
     return k.startsWith('nvapi-')
       ? openAiCompatible(k, NIM_BASE, NIM_MODEL, 'NVIDIA NIM')
       : gemini(k);
   }
-  const nim = envKeys('NVIDIA_API_KEY');
+  // The operator's dropdown pick wins over the env default, but only from the allowlist.
+  const orKeys = envKeys('OPENROUTER_API_KEY');
+  const nimKeys = envKeys('NVIDIA_API_KEY');
+  if (choice?.provider === 'nvidia' && nimKeys.length) {
+    return openAiCompatible(rotateApiKey(nimKeys), NIM_BASE, NIM_MODEL, 'NVIDIA NIM');
+  }
+  if (orKeys.length) {
+    const picked = choice && choice.provider === 'openrouter' ? choice : undefined;
+    const modelId = picked?.id ?? OPENROUTER_MODEL;
+    // Measured: gemini-2.5-flash 1.65s with thinking off vs 3.3s at effort=low. gpt-oss cannot be
+    // switched off, so it keeps effort=low.
+    const reasoning = picked
+      ? picked.reasoning
+      : modelId.includes('gpt-oss') ? { effort: 'low' } : modelId.startsWith('google/') ? { enabled: false } : undefined;
+    return openAiCompatible(rotateApiKey(orKeys), OPENROUTER_BASE, modelId, 'OpenRouter', reasoning ? { reasoning } : {}, true);
+  }
+  const nim = nimKeys;
   if (nim.length) return openAiCompatible(rotateApiKey(nim), NIM_BASE, NIM_MODEL, 'NVIDIA NIM');
   const gem = envKeys('GEMINI_API_KEY');
   if (gem.length) return gemini(rotateApiKey(gem));
@@ -441,26 +533,52 @@ export function resolveProvider(userKey?: string): LlmProvider | null {
    The two things the analyst is asked to do
    ───────────────────────────────────────────────────────────── */
 
+/** A page the operator linked, fetched server-side (see webContext.ts). */
+export interface FetchedPage {
+  url: string;
+  title: string;
+  text: string;
+}
+
+export interface AnalyzeOptions {
+  history?: ChatTurn[];
+  webSearch?: boolean;
+  pages?: FetchedPage[];
+}
+
+// The data sits in the system message and the operator's words are the last
+// thing the model reads. It used to be the other way round: the question came
+// after the whole data dump and was followed by "Answer the query against the
+// data above. Carry the provenance class of every fact you use", so even "and
+// why?" came back as a small report.
 export async function analyzeIntelligence(
   provider: LlmProvider,
   context: IntelligenceContext,
-  userQuery: string
+  userQuery: string,
+  options: AnalyzeOptions = {}
 ): Promise<string> {
-  return provider.complete(
-    SYSTEM_PROMPT,
-    `## CURRENT OPERATIONAL DATA
+  const webSearch = Boolean(options.webSearch && provider.supportsWebSearch);
+  const pages = (options.pages ?? [])
+    .map(p => `### ${p.title || p.url}\nURL: ${p.url}\n${p.text}`)
+    .join('\n\n');
+  const system = `${SYSTEM_PROMPT}
+
+## CURRENT OPERATIONAL DATA
 ${serializeContext(context)}
-
-## ANALYST QUERY
-${userQuery}
-
-Answer the query against the data above. Carry the provenance class of every fact you use.`
-  );
+${pages ? `\n## FETCHED PAGES (WEB, fetched this turn from links the operator sent)\n${pages}\n` : ''}
+## WEB SEARCH THIS TURN
+${webSearch ? 'ON. The search results attached to this turn are your WEB RESULTS.' : 'OFF.'}`;
+  return provider.complete(system, userQuery, {
+    maxTokens: 2000,
+    history: options.history,
+    webSearch,
+  });
 }
 
 export async function generateBriefing(
   provider: LlmProvider,
-  context: IntelligenceContext
+  context: IntelligenceContext,
+  request = 'Generate the full current intelligence briefing.'
 ): Promise<string> {
   return provider.complete(
     SYSTEM_PROMPT,
@@ -468,6 +586,9 @@ export async function generateBriefing(
 
 ## CURRENT OPERATIONAL DATA
 ${serializeContext(context)}
+
+## OPERATOR BRIEFING REQUEST
+${request}
 
 Write the briefing now.`
   );

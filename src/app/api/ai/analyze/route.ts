@@ -12,14 +12,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   resolveProvider,
   analyzeIntelligence,
+  type ChatTurn,
   type IntelligenceContext,
 } from '@/lib/ai-engine';
+import { fetchLinkedPages, wantsWebSearch } from '@/lib/webContext';
 import { currentLogin } from '@/lib/dingirSessionServer';
 
 export const dynamic = 'force-dynamic';
 
 /* ─────────────────────────────────────────────────────────────
-   Rate Limiter — 5 requests per minute per IP
+   Rate Limiter — 20 requests per minute per IP
    ───────────────────────────────────────────────────────────── */
 
 interface RateLimitEntry {
@@ -28,7 +30,9 @@ interface RateLimitEntry {
 }
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
-const RATE_LIMIT_MAX = 5;
+// Was 5. A real back-and-forth hits that in a minute; the route is behind the
+// DINGIR login anyway, so this only guards against a runaway client.
+const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
 function checkRateLimit(ip: string): { allowed: boolean; remaining: number; resetIn: number } {
@@ -65,12 +69,39 @@ setInterval(() => {
 interface AnalyzeRequestBody {
   query: string;
   context: IntelligenceContext;
+  /** Earlier turns, oldest first. Optional so an old cached client still works. */
+  messages?: unknown;
+  /** The globe toggle in the chat header. */
+  webSearch?: boolean;
+}
+
+const MAX_TURNS = 40;
+const MAX_TURN_CHARS = 8_000;
+const MAX_HISTORY_CHARS = 60_000;
+
+/** Only well-formed turns, newest kept, each one capped. The client is ours but
+ *  the body is still input: a role other than user/assistant never reaches the provider. */
+function sanitizeHistory(raw: unknown): ChatTurn[] {
+  if (!Array.isArray(raw)) return [];
+  const turns: ChatTurn[] = [];
+  let total = 0;
+  for (let i = raw.length - 1; i >= 0 && turns.length < MAX_TURNS; i--) {
+    const { role, content: text } = (raw[i] ?? {}) as { role?: unknown; content?: unknown };
+    if ((role !== 'user' && role !== 'assistant') || typeof text !== 'string' || !text.trim()) continue;
+    const content = text.slice(0, MAX_TURN_CHARS);
+    if (total + content.length > MAX_HISTORY_CHARS) break;
+    total += content.length;
+    turns.unshift({ role, content });
+  }
+  return turns;
 }
 
 interface AnalyzeResponse {
   analysis: string;
   model: string;
   timestamp: string;
+  /** What actually reached the model this turn, so the UI never claims a search that did not run. */
+  web: { searched: boolean; pages: number };
 }
 
 interface ErrorResponse {
@@ -111,7 +142,7 @@ export async function POST(
   if (!rateCheck.allowed) {
     return NextResponse.json(
       {
-        error: 'Rate limit exceeded. Maximum 5 requests per minute.',
+        error: `Rate limit exceeded. Maximum ${RATE_LIMIT_MAX} requests per minute.`,
         code: 'RATE_LIMITED',
         retryAfter: Math.ceil(rateCheck.resetIn / 1000),
       },
@@ -129,7 +160,7 @@ export async function POST(
   // Which model answers. The header is named x-llm-key; x-gemini-key is still
   // read so a key already saved in someone's browser keeps working.
   const userKey = (request.headers.get('x-llm-key') || request.headers.get('x-gemini-key'))?.trim();
-  const provider = resolveProvider(userKey);
+  const provider = resolveProvider(userKey, request.headers.get('x-llm-model') || undefined);
   if (!provider) {
     return NextResponse.json(
       {
@@ -168,9 +199,21 @@ export async function POST(
   }
 
   try {
-    const analysis = await analyzeIntelligence(provider, body.context, body.query.trim());
+    const query = body.query.trim();
+    const pages = await fetchLinkedPages(query);
+    const searched = Boolean(provider.supportsWebSearch && (body.webSearch === true || wantsWebSearch(query)));
+    const analysis = await analyzeIntelligence(provider, body.context, query, {
+      history: sanitizeHistory(body.messages),
+      webSearch: searched,
+      pages,
+    });
     return NextResponse.json(
-      { analysis, model: `${provider.label} / ${provider.model}`, timestamp: new Date().toISOString() },
+      {
+        analysis,
+        model: `${provider.label} / ${provider.model}`,
+        timestamp: new Date().toISOString(),
+        web: { searched, pages: pages.length },
+      },
       { headers: { 'X-RateLimit-Remaining': String(rateCheck.remaining) } }
     );
   } catch (err: unknown) {

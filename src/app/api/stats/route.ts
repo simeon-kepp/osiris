@@ -1,3 +1,4 @@
+import { cachedRoute, keyOf } from '@/lib/routeCache';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 60;
@@ -15,7 +16,7 @@ export const maxDuration = 60;
  * lightweight stats route safely serves 10k concurrent users instantly.
  */
 
-export async function GET(req: Request) {
+async function compute(req: Request) {
   try {
     const origin = new URL(req.url).origin;
 
@@ -90,4 +91,8 @@ export async function GET(req: Request) {
     console.error('Stats aggregation failed:', error);
     return NextResponse.json({ error: 'Failed to compute stats' }, { status: 500 });
   }
+}
+
+export async function GET(request: Request) {
+  return cachedRoute(keyOf(request), 60000, () => compute(request));
 }
