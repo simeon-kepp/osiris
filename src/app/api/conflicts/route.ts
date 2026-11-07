@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cachedRoute } from '@/lib/routeCache';
 import { stealthFetch } from '@/lib/stealthFetch';
 
 export const dynamic = 'force-dynamic';
@@ -270,7 +271,7 @@ async function fetchAllLiveConflictData(): Promise<{ events: ConflictEvent[]; ev
   return { events: allEvents, eventsByRegion };
 }
 
-export async function GET() {
+async function compute() {
   try {
     // Fetch live conflict data from GDELT
     const { events: liveEvents, eventsByRegion } = await fetchAllLiveConflictData();
@@ -340,7 +341,11 @@ export async function GET() {
       sources: ['fallback'],
       refreshInterval: 60,
     }, {
-      headers: { 'Cache-Control': 'no-cache' },
+      headers: { 'Cache-Control': 'no-cache', 'X-Route-NoStore': '1' },
     });
   }
+}
+
+export async function GET() {
+  return cachedRoute('src/app/api/conflicts/route.ts', 300000, () => compute());
 }

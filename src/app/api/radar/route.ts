@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cachedRoute } from '@/lib/routeCache';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   VE:[-66,8],VN:[106,16],YE:[48,15.5],ZM:[28,-14],ZW:[30,-20],
 };
 
-export async function GET() {
+async function compute() {
   try {
     const now = Math.floor(Date.now() / 1000);
     const from = now - 86400; // Last 24 hours
@@ -40,7 +41,7 @@ export async function GET() {
 
     if (!res.ok) {
       // Fallback: return empty but valid response
-      return NextResponse.json({ outages: [], total: 0, timestamp: new Date().toISOString(), source: 'IODA (offline)' });
+      return NextResponse.json({ outages: [], total: 0, timestamp: new Date().toISOString(), source: 'IODA (offline)' }, { headers: { 'X-Route-NoStore': '1' } });
     }
 
     const json = await res.json();
@@ -84,4 +85,8 @@ export async function GET() {
     console.error('[OSIRIS] IODA fetch error:', error);
     return NextResponse.json({ outages: [], total: 0, error: 'IODA unavailable' }, { status: 500 });
   }
+}
+
+export async function GET() {
+  return cachedRoute('src/app/api/radar/route.ts', 300000, () => compute());
 }

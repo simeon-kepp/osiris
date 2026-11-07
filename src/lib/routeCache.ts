@@ -10,6 +10,8 @@
 type Entry = { body: string; status: number; headers: [string, string][]; at: number };
 
 const store = new Map<string, Entry>();
+// keyOf() puts the query string in the key, so a client can mint keys at will. Cap the map.
+const MAX_ENTRIES = 300;
 const inflight = new Map<string, Promise<Entry>>();
 
 async function run(key: string, handler: () => Promise<Response>): Promise<Entry> {
@@ -23,7 +25,16 @@ async function run(key: string, handler: () => Promise<Response>): Promise<Entry
       headers: [['Content-Type', res.headers.get('Content-Type') || 'application/json']],
       at: Date.now(),
     };
-    if (res.status >= 200 && res.status < 300) store.set(key, entry);
+    // A handler marks a degraded answer (upstream down, fallback data) with X-Route-NoStore so it
+    // is served once but never replaces a good entry or sticks for a full ttl.
+    if (res.status >= 200 && res.status < 300 && !res.headers.get('X-Route-NoStore')) {
+      if (store.size >= MAX_ENTRIES && !store.has(key)) {
+        let oldest: string | null = null, oldestAt = Infinity;
+        for (const [k, v] of store) if (v.at < oldestAt) { oldest = k; oldestAt = v.at; }
+        if (oldest) store.delete(oldest);
+      }
+      store.set(key, entry);
+    }
     return entry;
   })().finally(() => inflight.delete(key));
   inflight.set(key, p);

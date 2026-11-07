@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cachedRoute } from '@/lib/routeCache';
 import WebSocket from 'ws';
 
 /**
@@ -215,7 +216,7 @@ async function fetchVesselApiFallback() {
   // Mock data removed per user request. We only rely on real live stream data.
 }
 
-export async function GET() {
+async function compute() {
   // Trigger Hybrid Fallback
   await fetchVesselApiFallback();
 
@@ -304,4 +305,8 @@ export async function GET() {
       'Pragma': 'no-cache'
     },
   });
+}
+
+export async function GET() {
+  return cachedRoute('src/app/api/maritime/route.ts', 30000, () => compute());
 }

@@ -972,19 +972,26 @@ export default function Dashboard() {
   }, [activeLayers]);
 
   // ── LAYER-AWARE POLLING — only poll data for active layers ──
+  // The effect depends on these five booleans, not on activeLayers: toggling any
+  // unrelated layer used to tear down and recreate every interval below.
+  const pollFlights = !!(activeLayers.flights || activeLayers.military || activeLayers.jets || activeLayers.private);
+  const pollBalloons = !!activeLayers.balloons;
+  const pollRadiation = !!activeLayers.radiation;
+  const pollMaritime = !!activeLayers.maritime;
+  const pollCyber = !!(activeLayers as any).cyber_attacks;
   useEffect(() => {
     const intervals: ReturnType<typeof setInterval>[] = [];
-    if (activeLayers.flights || activeLayers.military || activeLayers.jets || activeLayers.private) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/flights'), 300000)); // 5 min (was 2 min)
+    if (pollFlights) {
+      intervals.push(setInterval(() => fetchEndpoint('/api/flights', undefined, undefined, { skipWhenHidden: true }), 300000)); // 5 min (was 2 min)
     }
 
-    if (activeLayers.balloons) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/balloons', d => ({ balloons: d.balloons })), 300000)); // 5m
+    if (pollBalloons) {
+      intervals.push(setInterval(() => fetchEndpoint('/api/balloons', d => ({ balloons: d.balloons }), undefined, { skipWhenHidden: true }), 300000)); // 5m
     }
-    if (activeLayers.radiation) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/radiation', d => ({ radiation: d.stations })), 300000)); // 5m
+    if (pollRadiation) {
+      intervals.push(setInterval(() => fetchEndpoint('/api/radiation', d => ({ radiation: d.stations }), undefined, { skipWhenHidden: true }), 300000)); // 5m
     }
-    if (activeLayers.maritime) {
+    if (pollMaritime) {
       // Was 10s: a 2.2MB/14.6k-ship GeoJSON rebuild every 10s, unconditionally
       // (including in a background tab) -- the single most out-of-family poll
       // interval in this file (everything else is 5-30min) and, measured,
@@ -992,15 +999,16 @@ export default function Dashboard() {
       // don't meaningfully change ship-to-ship at 10s resolution anyway.
       intervals.push(setInterval(() => fetchEndpoint('/api/maritime', d => ({ maritime_ports: d.ports, maritime_chokepoints: d.chokepoints, maritime_ships: d.ships }), undefined, { skipWhenHidden: true }), 60000)); // 60s
     }
-    if ((activeLayers as any).cyber_attacks) {
+    if (pollCyber) {
       intervals.push(setInterval(() => {
+        if (document.hidden) return; // no 10 s refresh for a tab nobody is looking at
         layerFetchedRef.current.delete('cyber_attacks');
         fetchEndpoint('/api/cyber-attacks', d => ({ cyber_attacks: d.attacks }));
         layerFetchedRef.current.add('cyber_attacks');
       }, 10000)); // 10s — rapid refresh
     }
     return () => intervals.forEach(clearInterval);
-  }, [activeLayers, fetchEndpoint]);
+  }, [pollFlights, pollBalloons, pollRadiation, pollMaritime, pollCyber, fetchEndpoint]);
 
   // CCTV: loaded once on layer toggle via layerFetchedRef (no viewport polling)
 

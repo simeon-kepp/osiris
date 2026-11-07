@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cachedRoute } from '@/lib/routeCache';
 import crypto from 'crypto';
 
 /**
@@ -99,7 +100,7 @@ function parseRSSItems(xml: string, sourceName: string): any[] {
   return items;
 }
 
-export async function GET() {
+async function compute() {
   try {
     const feedPromises = TELEGRAM_CHANNELS.map(async (channel) => {
       try {
@@ -169,4 +170,8 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ news: [], error: 'Failed to fetch intel' }, { status: 500 });
   }
+}
+
+export async function GET() {
+  return cachedRoute('src/app/api/news/route.ts', 60000, () => compute());
 }
