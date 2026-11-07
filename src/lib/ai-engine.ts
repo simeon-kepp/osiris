@@ -659,6 +659,35 @@ export interface AnalyzeOptions {
   memory?: string;
   /** When set, the answer is streamed to this callback while it is written. */
   onToken?: (text: string) => void;
+  /** Lookups the model may call mid-answer (see chat-tools.ts). */
+  tools?: { help: string; run: (call: Record<string, unknown>) => Promise<{ label: string; result: string }> };
+  /** A summary of the part of this conversation that no longer fits word for word. */
+  summary?: string;
+  /** Called when a tool starts, so the UI can say what is being looked up. */
+  onStatus?: (text: string) => void;
+}
+
+const MAX_TOOL_ROUNDS = 3;
+
+/** Holds back the first few characters of a streamed answer. A reply that opens with TOOL is a
+ *  lookup request, not text for the operator, so it must never reach the screen. */
+function toolGate(emit?: (t: string) => void) {
+  let buf = '';
+  let mode: 'wait' | 'pass' | 'tool' = 'wait';
+  return {
+    push(t: string) {
+      if (mode === 'pass') { emit?.(t); return; }
+      buf += t;
+      if (mode === 'tool') return;
+      const head = buf.trimStart();
+      if (head.length < 5) return;
+      if (head.startsWith('TOOL')) mode = 'tool';
+      else { mode = 'pass'; emit?.(buf); }
+    },
+    flush() { if (mode === 'wait' && buf) emit?.(buf); },
+    /** The reply turned out not to be a usable lookup: show it after all. */
+    release() { if (mode === 'tool' && buf) emit?.(buf); },
+  };
 }
 
 // The data sits in the system message and the operator's words are the last
@@ -682,11 +711,33 @@ export async function analyzeIntelligence(
 ${serializeContext(context)}
 ${options.memory ? `\n${options.memory}\n` : ''}${pages ? `\n## FETCHED PAGES (WEB, fetched this turn from links the operator sent)\n${pages}\n` : ''}
 ## WEB SEARCH THIS TURN
-${webSearch ? 'ON. The search results attached to this turn are your WEB RESULTS.' : 'OFF.'}`;
-  const callOptions = { maxTokens: 2000, history: options.history, webSearch };
-  return options.onToken
-    ? completeStreaming(provider, system, userQuery, callOptions, options.onToken)
-    : provider.complete(system, userQuery, callOptions);
+${webSearch ? 'ON. The search results attached to this turn are your WEB RESULTS.' : 'OFF.'}
+${options.summary ? `\n## EARLIER IN THIS CONVERSATION (summary of the oldest messages)\n${options.summary}\n` : ''}${options.tools ? `\n${options.tools.help}\n` : ''}`;
+
+  let history = [...(options.history ?? [])];
+  let query = userQuery;
+  for (let round = 0; ; round++) {
+    const canCall = Boolean(options.tools) && round < MAX_TOOL_ROUNDS;
+    const callOptions = { maxTokens: 2000, history, webSearch };
+    const gate = toolGate(canCall ? options.onToken : undefined);
+    const text = options.onToken
+      ? await completeStreaming(provider, system, query, callOptions, canCall ? gate.push : options.onToken)
+      : await provider.complete(system, query, callOptions);
+    if (canCall) gate.flush();
+    const m = canCall ? text.trimStart().match(/^TOOL\s*:?\s*(\{[\s\S]*\})/) : null;
+    let call: Record<string, unknown> | null = null;
+    if (m) { try { call = JSON.parse(m[1]); } catch { call = null; } }
+    if (canCall && !m) gate.release();
+    if (!call || !options.tools) {
+      // A malformed TOOL line was held back by the gate; the operator gets an honest message, not silence.
+      if (m && !call && options.onToken) options.onToken('I tried to look something up but the request was malformed. Ask me again.');
+      return call ? text : (m ? 'I tried to look something up but the request was malformed. Ask me again.' : text);
+    }
+    const out = await options.tools.run(call);
+    options.onStatus?.(out.label);
+    history = [...history, { role: 'user', content: query }, { role: 'assistant', content: text.trim() }];
+    query = `TOOL RESULT (${String(call.tool)}):\n${out.result.slice(0, 12_000)}\n\nNow answer the operator's question from this result${round + 1 >= MAX_TOOL_ROUNDS ? ' (no more tools, answer now)' : ''}: "${userQuery}"`;
+  }
 }
 
 export async function generateBriefing(

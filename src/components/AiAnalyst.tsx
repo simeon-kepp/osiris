@@ -469,6 +469,8 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
   const [isLoading, setIsLoading] = useState(false);
   /** True from the first streamed token on; the "thinking" bubble gives way to the growing answer. */
   const [streaming, setStreaming] = useState(false);
+  /** What the analyst is looking up right now ("Reading the map: europe, last 24 h"). */
+  const [lookupNote, setLookupNote] = useState('');
   const [briefingInFlight, setBriefingInFlight] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState('Thinking');
   const [showSettings, setShowSettings] = useState(false);
@@ -619,9 +621,11 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
           const line = buf.slice(0, nl).trim();
           buf = buf.slice(nl + 1);
           if (!line) continue;
-          const ev = JSON.parse(line) as { t?: string; done?: boolean; error?: string; model?: string; timestamp?: string; web?: { searched: boolean; pages: number } };
+          const ev = JSON.parse(line) as { t?: string; done?: boolean; error?: string; model?: string; timestamp?: string; s?: string; web?: { searched: boolean; pages: number } };
           if (ev.error) throw new Error(ev.error);
+          if (ev.s) setLookupNote(ev.s);
           if (ev.t) {
+            setLookupNote('');
             text += ev.t;
             if (!started) {
               started = true;
@@ -658,6 +662,7 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
     } finally {
       setStreaming(false);
       setIsLoading(false);
+      setLookupNote('');
     }
   }, [inputText, isLoading, messages, data, getHeaders, graphEnabled, focusNode, webSearch, attachedId, sessions, loadSession, sessionId]);
 
@@ -714,6 +719,7 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
+      setLookupNote('');
       setBriefingInFlight(false);
     }
   }, [isLoading, data, getHeaders, graphEnabled, focusNode]);
@@ -823,7 +829,6 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
                   </button>
                   <button onClick={() => (expanded ? setSideOpen(o => !o) : setShowHistory(h => !h))} className={`relative p-1.5 rounded-lg transition-colors group ${(expanded ? sideOpen : showHistory) ? 'bg-[var(--hover-accent)]' : 'hover:bg-[var(--hover-accent)]'}`} title="Earlier conversations">
                     <HistoryIcon className={`w-3.5 h-3.5 ${(expanded ? sideOpen : showHistory) ? 'text-[var(--gold-primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`} />
-                    {sessions.length > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-[var(--gold-primary)] px-0.5 text-[7px] font-bold leading-3 text-black text-center">{sessions.length}</span>}
                   </button>
                   <button onClick={() => setExpanded(x => !x)} className="p-1.5 rounded-lg hover:bg-[var(--hover-accent)] transition-colors group" title={expanded ? 'Shrink' : 'Fullscreen'}>
                     {expanded ? <Minimize2 className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]" /> : <Maximize2 className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]" />}
@@ -1162,7 +1167,7 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
                       <Loader2 className="w-3.5 h-3.5 text-[var(--gold-primary)] animate-spin" />
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] font-mono tracking-[0.15em] text-[var(--gold-primary)] uppercase">
-                          {briefingInFlight ? 'Analyzing intelligence' : thinkingLabel}
+                          {briefingInFlight ? 'Analyzing intelligence' : (lookupNote || thinkingLabel)}
                         </span>
                         <motion.span
                           animate={{ opacity: [0, 1, 0] }}

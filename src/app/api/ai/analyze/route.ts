@@ -13,12 +13,14 @@ import {
   resolveProvider,
   analyzeIntelligence,
   type ChatTurn,
+  type LlmProvider,
   type IntelligenceContext,
 } from '@/lib/ai-engine';
 import { fetchLinkedPages, wantsWebSearch } from '@/lib/webContext';
 import { currentLogin } from '@/lib/dingirSessionServer';
 import { validId } from '@/lib/chat-store';
 import { addFact, forgetFacts, parseMemoryCommand, recallMemory } from '@/lib/chat-memory';
+import { runTool, TOOL_HELP } from '@/lib/chat-tools';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,9 +83,40 @@ interface AnalyzeRequestBody {
   chatId?: string;
 }
 
-const MAX_TURNS = 40;
-const MAX_TURN_CHARS = 8_000;
-const MAX_HISTORY_CHARS = 60_000;
+const MAX_TURNS = 200;
+const MAX_TURN_CHARS = 6_000;
+const MAX_HISTORY_CHARS = 150_000;
+
+// Past about 24 messages the oldest part is summarised and the latest 10 stay word for word.
+// The summary is cached per conversation and only rebuilt once 8 more messages have slipped
+// out of the verbatim window, so most turns cost no extra model call.
+const KEEP_VERBATIM = 10;
+const COMPACT_AFTER = 24;
+const summaries = new Map<string, { covered: number; text: string }>();
+
+async function compact(provider: LlmProvider, turns: ChatTurn[], chatId: string | undefined): Promise<{ history: ChatTurn[]; summary?: string }> {
+  if (turns.length <= COMPACT_AFTER) return { history: turns };
+  try {
+    const want = turns.length - KEEP_VERBATIM;
+    let c = chatId ? summaries.get(chatId) : undefined;
+    if (!c || c.covered > want || want - c.covered >= 8) {
+      const prev = c && c.covered <= want ? c : undefined;
+      const slice = turns.slice(prev?.covered ?? 0, want);
+      const text = await provider.complete(
+        'You compress a conversation between an operator and the DINGIR analyst into notes the analyst can keep working from. Keep names, places, dates, numbers, decisions, open questions and what the operator cares about. Drop pleasantries and repetition. Plain text, at most 350 words, no preamble.',
+        `${prev ? `Notes so far:\n${prev.text}\n\n` : ''}New messages to fold in:\n` +
+          slice.map(t => `${t.role === 'user' ? 'OPERATOR' : 'DINGIR'}: ${t.content.slice(0, 1500)}`).join('\n\n'),
+        { maxTokens: 700 },
+      );
+      c = { covered: want, text: text.trim() };
+      if (chatId) summaries.set(chatId, c);
+    }
+    return { history: turns.slice(c.covered), summary: c.text };
+  } catch (e) {
+    console.warn('[DINGIR] compaction failed, sending the latest turns instead:', e instanceof Error ? e.message : e);
+    return { history: turns.slice(-COMPACT_AFTER) };
+  }
+}
 
 /** Only well-formed turns, newest kept, each one capped. The client is ours but
  *  the body is still input: a role other than user/assistant never reaches the provider. */
@@ -226,7 +259,18 @@ export async function POST(
     } catch (e) {
       console.warn('[DINGIR] memory unavailable:', e instanceof Error ? e.message : e);
     }
-    const options = { history: sanitizeHistory(body.messages), webSearch: searched, pages, memory };
+    const chatId = body.chatId && validId(body.chatId) ? body.chatId : undefined;
+    const compacted = await compact(provider, sanitizeHistory(body.messages), chatId);
+    const toolCtx = {
+      cookie: request.headers.get('cookie') || '',
+      providerLabel: provider.label,
+      model: provider.model,
+      historyTurns: compacted.history.length,
+      systemChars: JSON.stringify(body.context).length + 6_000,
+      chatId,
+    };
+    const tools = { help: TOOL_HELP, run: (call: Record<string, unknown>) => runTool(call, toolCtx) };
+    const options = { history: compacted.history, summary: compacted.summary, webSearch: searched, pages, memory, tools };
     const web = { searched, pages: pages.length };
 
     if (body.stream === true) {
@@ -237,7 +281,7 @@ export async function POST(
         async start(controller) {
           const send = (o: unknown) => controller.enqueue(enc.encode(`${JSON.stringify(o)}\n`));
           try {
-            await analyzeIntelligence(provider, body.context, query, { ...options, onToken: t => send({ t }) });
+            await analyzeIntelligence(provider, body.context, query, { ...options, onToken: t => send({ t }), onStatus: s => send({ s }) });
             send({ done: true, model: `${provider.label} / ${provider.model}`, timestamp: new Date().toISOString(), web });
           } catch (err) {
             const m = mapProviderError(err, provider.label);
