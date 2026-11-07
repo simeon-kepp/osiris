@@ -142,9 +142,19 @@ function EntityGraphPanel({ entity, onClose }: Props) {
     return { nodes: Array.from(nodeMap.values()), links: merged };
   }, []);
 
-  const expandEntity = useCallback(async (type: string, id: string, properties?: Record<string, any>) => {
+  // Every new target starts a new generation. A response that comes back after the
+  // user has locked something else belongs to the old graph and must not be merged in.
+  const genRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // `force` is for a fresh lock: expandedIds in this closure still holds the PREVIOUS
+  // graph's keys until the reset below renders, so re-locking an entity that was
+  // already expanded used to return here and leave a lone root node.
+  const expandEntity = useCallback(async (type: string, id: string, properties?: Record<string, any>, force = false) => {
     const key = `${type}:${id}`;
-    if (expandedIds.has(key)) return;
+    if (!force && expandedIds.has(key)) return;
+    const gen = genRef.current;
+    const signal = abortRef.current?.signal;
     setLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ type, id });
@@ -152,17 +162,23 @@ function EntityGraphPanel({ entity, onClose }: Props) {
       if (properties?.registration) params.set('registration', properties.registration);
       if (properties?.model) params.set('model', properties.model);
       if (properties?.icao24) params.set('icao24', properties.icao24);
-      const res = await fetch(`/api/entity/expand?${params}`, { cache: 'no-store' });
+      const res = await fetch(`/api/entity/expand?${params}`, { cache: 'no-store', signal });
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `HTTP ${res.status}`); }
       const data = await res.json();
+      if (gen !== genRef.current) return;
       setGraphData(prev => mergeGraph(prev, { nodes: data.nodes || [], links: data.links || [] }));
       setExpandedIds(prev => new Set([...prev, key]));
-    } catch (e) { setError(e instanceof Error ? e.message : 'Expansion failed'); }
-    finally { setLoading(false); }
+    } catch (e) {
+      if (gen === genRef.current) setError(e instanceof Error ? e.message : 'Expansion failed');
+    }
+    finally { if (gen === genRef.current) setLoading(false); }
   }, [expandedIds, mergeGraph]);
 
   useEffect(() => {
     if (!target) return;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    genRef.current++;
     const root: EntityNode = {
       id: `${target.type}:${target.id}`, label: target.label || target.id,
       type: target.type as EntityNode['type'], properties: target.properties,
@@ -171,7 +187,7 @@ function EntityGraphPanel({ entity, onClose }: Props) {
     setExpandedIds(new Set());
     setSelectedNode(root);
     setError(null);
-    expandEntity(target.type, target.id, target.properties);
+    expandEntity(target.type, target.id, target.properties, true);
   }, [target]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNodeClick = useCallback((node: any) => {

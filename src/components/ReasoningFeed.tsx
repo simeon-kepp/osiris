@@ -105,6 +105,8 @@ export default function ReasoningFeed({ onClose, onInspect, offsetRight = 0, onW
     es.addEventListener('snapshot', (e) => {
       try {
         const s = JSON.parse((e as MessageEvent).data) as Snapshot;
+        // A partial frame would reach the render (snapshot.counts, snapshot.graph) and blank the panel.
+        if (!s || !Array.isArray(s.items) || !s.counts || !s.graph) return;
         // Mark what is new since the last snapshot. An unread marker is the
         // difference between a feed and a table that happens to refresh.
         const fresh = new Set<string>();
@@ -112,6 +114,8 @@ export default function ReasoningFeed({ onClose, onInspect, offsetRight = 0, onW
           if (!seenTitles.current.has(item.title)) fresh.add(item.title);
           seenTitles.current.add(item.title);
         }
+        // Remember only what is on screen now; the set used to grow with every title ever seen.
+        seenTitles.current = new Set(s.items.map(i => i.title));
         setFreshTitles(fresh);
         setSnapshot(s);
         setLastUpdate(Date.now());
