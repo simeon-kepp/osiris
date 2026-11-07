@@ -7,10 +7,11 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  /* Nothing renders next/image, and the old hostname '**' pattern let anyone
+     use /_next/image to fetch and resize pictures from any host through this
+     server. unoptimized switches the optimizer off, so it answers 404. */
   images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: '**' },
-    ],
+    unoptimized: true,
   },
   async headers() {
     return [
