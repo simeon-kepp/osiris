@@ -37,15 +37,15 @@ type Snapshot = {
 
 const KIND_STYLE: Record<string, { dot: string; label: string; hint: string }> = {
   ANOMALY: {
-    dot: '#ff6b6b', label: 'ANOMALY',
+    dot: '#ff6b6b', label: 'UNUSUAL',
     hint: 'This node sits far from the company it keeps. Computed from observed structure.',
   },
   HUB: {
-    dot: '#00f5c4', label: 'HUB',
+    dot: '#00f5c4', label: 'WELL CONNECTED',
     hint: 'A plain count of observed edges. The one entry type you can take at face value.',
   },
   PREDICTION: {
-    dot: '#b388ff', label: 'PREDICTION',
+    dot: '#b388ff', label: 'POSSIBLE LINK',
     hint: 'The model expects a relation here that has no edge behind it. A hypothesis, not evidence.',
   },
   CHANGE: {
@@ -53,6 +53,17 @@ const KIND_STYLE: Record<string, { dot: string; label: string; hint: string }> =
     hint: 'A state transition the ingestion pipeline actually recorded.',
   },
 };
+/** The backend writes embedding-space numbers. This turns them into the sentence a person
+ *  would want, without changing what is claimed. */
+function plainDetail(item: FeedItem): string {
+  const d = item.detail || '';
+  const anomaly = d.match(/embedding sits ([\d.]+) from the mean of its (\d+) neighbours/i);
+  if (anomaly) return `Behaves differently from the ${anomaly[2]} nodes around it. Unusual, so worth a look. (distance ${anomaly[1]})`;
+  const hub = d.match(/(\d+)\s+(?:observed\s+)?(?:edges|links|connections)/i);
+  if (item.kind === 'HUB' && hub) return `Linked to ${hub[1]} other nodes, one of the most connected in the graph.`;
+  if (item.kind === 'PREDICTION') return `${d} This is a guess by the model, not a recorded fact and not a forecast.`;
+  return d;
+}
 const FALLBACK_STYLE = { dot: '#8a8aa0', label: 'ENTRY', hint: '' };
 
 interface Props {
@@ -211,7 +222,7 @@ export default function ReasoningFeed({ onClose, onInspect, offsetRight = 0, onW
                   {item.title}
                 </button>
                 <p className="mt-1 text-[11px] text-[var(--text-muted)] leading-relaxed">
-                  {item.detail}
+                  {plainDetail(item)}
                 </p>
                 {isGuess && (
                   // Spelled out on every single entry, not just in the legend.

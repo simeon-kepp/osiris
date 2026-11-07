@@ -244,15 +244,19 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
             </button>
           </div>
           </div>
+          <p className="mb-3 text-[12px] leading-relaxed text-[#e4e8ef]">
+            <span className="text-white">What is predicted:</span> how many earthquakes of magnitude 5 or more (aftershocks) will follow the biggest recent
+            quakes within the next 7 days. Each forecast is checked against what really happened, and the track record below shows how often it held.
+          </p>
           {/* The loop this tool runs, left to right: issue a forecast, follow it while its window is open,
               score it against what happened. Three numbers, one per step. */}
           {(() => {
             const scoredN = sb ? sb.hits + sb.misses : 0;
             const running = data?.worker?.worker === 'running';
             const steps = [
-              { n: '1', label: 'PREDICT', value: formatCountdown(data?.worker?.next_issue_due_utc), sub: 'until the next forecast is issued', dot: running ? '#00f5c4' : '#ffd166', dotLabel: running ? 'engine running' : 'engine not running' },
-              { n: '2', label: 'TRACK', value: `${(data?.live?.open ?? 0) + (data?.live?.awaiting_score ?? 0)}`, sub: `${data?.live?.open ?? 0} open · ${data?.live?.awaiting_score ?? 0} waiting for the result` },
-              { n: '3', label: 'SCORE', value: scoredN > 0 && sb ? `${((sb.hits / scoredN) * 100).toFixed(0)}%` : '—', sub: scoredN > 0 && sb ? `${sb.hits} of ${scoredN} landed inside the 95% range` : 'nothing scored yet' },
+              { n: '1', label: 'FORECAST', value: formatCountdown(data?.worker?.next_issue_due_utc), sub: 'until the next forecast', dot: running ? '#00f5c4' : '#ffd166', dotLabel: running ? 'engine running' : 'engine not running' },
+              { n: '2', label: 'WATCHING', value: `${(data?.live?.open ?? 0) + (data?.live?.awaiting_score ?? 0)}`, sub: `forecasts running now · ${data?.live?.awaiting_score ?? 0} waiting to be checked` },
+              { n: '3', label: 'TRACK RECORD', value: scoredN > 0 && sb ? `${((sb.hits / scoredN) * 100).toFixed(0)}%` : '—', sub: scoredN > 0 && sb ? `held in ${sb.hits} of ${scoredN} checked forecasts` : 'nothing checked yet' },
             ];
             return (
               <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-stretch gap-2">
@@ -272,23 +276,9 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
           })()}
         </div>
 
-        <div className="shrink-0 border-b border-white/[0.08] bg-[#080c15] px-5 py-3">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-[10px] tracking-[.16em] text-white">FORECAST DOMAIN LANES</div>
-            <div className="font-mono text-[8px] text-[#aeb4c0]">EVIDENCE STATUS · NO FABRICATED SCORES</div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
-            {FORECAST_DOMAINS.map(domain => {
-              const style = FORECAST_STATUS_STYLE[domain.status];
-              return (
-                <div key={domain.id} className="min-w-0 rounded-lg border border-white/10 bg-[#0d1420] px-2.5 py-2">
-                  <div className="truncate font-mono text-[9px] tracking-wider text-white">{domain.label}</div>
-                  <div className={`mt-1 font-mono text-[8px] font-semibold ${style.className}`}>{style.label}</div>
-                  <div className="mt-1 line-clamp-2 font-mono text-[8px] leading-relaxed text-[#c3c8d2]" title={`${domain.question} · ${domain.evidence}`}>{domain.question}</div>
-                </div>
-              );
-            })}
-          </div>
+        <div className="shrink-0 border-b border-white/[0.08] bg-[#080c15] px-5 py-2 text-[10px] leading-relaxed text-[#c3c8d2]">
+          <span className="text-[#00f5c4]">Live and scored: earthquakes.</span>{' '}
+          Still in research, not scored: wildfire · markets · weather · space weather.
         </div>
 
         {/* ── calibration line: over-coverage is a failure, and saying so here
@@ -351,19 +341,21 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
             <>
               {/* ── the aggregate claim ────────────────────────────────── */}
               <div className="px-4 py-3 border-b border-white/[0.06]">
-                <div className="flex items-baseline gap-2">
-                  <span className="tabular-nums text-[26px] leading-none"
-                    style={{ color: probColour(f.total_probabilities?.percent_at_least_one ?? 0) }}>
-                    {(f.total_probabilities?.percent_at_least_one ?? 0).toFixed(1)}%
-                  </span>
-                  <span className="text-[10px] text-[#c3c8d2] tabular-nums">
-                    {tr('pred.atleastone')}
-                  </span>
-                </div>
+                {(() => {
+                  const pc = f.total_probabilities?.percent_at_least_one ?? 0;
+                  const word = pc >= 90 ? 'Almost certain' : pc >= 60 ? 'Likely' : pc >= 30 ? 'Possible' : 'Unlikely';
+                  return (
+                    <div className="flex items-baseline gap-3">
+                      <span className="tabular-nums text-[26px] leading-none" style={{ color: probColour(pc) }}>{word}</span>
+                      <span className="text-[11px] text-[#e4e8ef]">
+                        {pc >= 99 && pc < 100 ? pc.toFixed(1) : pc.toFixed(0)}% chance of at least one more M5+ aftershock near these quakes
+                      </span>
+                    </div>
+                  );
+                })()}
                 <div className="mt-1.5 text-[10px] tabular-nums text-[#c3c8d2] leading-relaxed">
-                  {tr('pred.expected')} {f.total_predicted_aftershocks} · 95%
-                  [{f.total_interval_95[0]}, {f.total_interval_95[1]}] ·
-                  {' '}{f.mainshocks_considered} {tr('pred.sequences')}
+                  Around {Math.round(f.total_predicted_aftershocks)} expected (likely range {f.total_interval_95[0]}–{f.total_interval_95[1]})
+                  {' · '}{f.mainshocks_considered} earthquakes followed
                   <br />
                   {fmtWindow(f.target_window_utc[0], f.target_window_utc[1])}
                   {' · '}
@@ -379,15 +371,15 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                 {f.falsified_if && (
                   <p className="mt-2 text-[10px] leading-relaxed text-[#ff9f43]">
                     <AlertTriangle className="inline w-3 h-3 mr-1 -mt-0.5" />
-                    {f.falsified_if}
+                    <span title={f.falsified_if}>The real count fell outside the expected range, so the model is off for this window. Hover for the technical reason.</span>
                   </p>
                 )}
               </div>
 
               <div className="px-4 pt-4 pb-2 border-b border-white/[0.06]">
-                <div className="text-[10px] tracking-widest text-[var(--text-primary)]">EVENTS IN THE SELECTED WINDOW</div>
+                <div className="text-[10px] tracking-widest text-[var(--text-primary)]">THE EARTHQUAKES BEHIND THIS FORECAST</div>
                 <div className="mt-2 grid grid-cols-[minmax(0,2fr)_0.8fr_0.9fr_auto] gap-3 text-[8px] tracking-widest text-[#c3c8d2]">
-                  <span>EVENT</span><span>PROBABILITY</span><span>EXPECTED</span><span>SEEN</span>
+                  <span>EARTHQUAKE</span><span>CHANCE OF AFTERSHOCK</span><span>EXPECTED</span><span>SO FAR</span>
                 </div>
               </div>
 
@@ -406,8 +398,8 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                         M{m.mainshock_mag} · {m.mainshock_place}
                       </span>
                       <span className="tabular-nums text-[15px]" style={{ color: probColour(pctv) }}>{pctv.toFixed(1)}%</span>
-                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">expect {m.predicted_count}</span>
-                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">seen {m.aftershocks_observed_so_far}</span>
+                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">~{m.predicted_count}</span>
+                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">{m.aftershocks_observed_so_far}</span>
                     </button>
 
                     {/* BODY -> the causality chain */}
