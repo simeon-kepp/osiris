@@ -88,6 +88,13 @@ function EntityGraphPanel({ entity, onClose }: Props) {
   useEffect(() => { setTarget(entity); }, [entity]);
   const [draftType, setDraftType] = useState<string>('country');
   const [draftId, setDraftId] = useState('');
+  // Live starting points for the empty state; the static list below is only the fallback.
+  const [groups, setGroups] = useState<{ title: string; items: { type: string; id: string; note: string }[] }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/entity/suggest').then(r => (r.ok ? r.json() : null)).then(j => { if (alive && j?.groups) setGroups(j.groups); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
   const lockTarget = useCallback((type: string, id: string) => {
     const clean = id.trim();
     if (clean) setTarget({ type, id: clean, label: clean, properties: {} });
@@ -348,16 +355,21 @@ function EntityGraphPanel({ entity, onClose }: Props) {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
               <Network className="w-8 h-8 text-[var(--gold-primary)]/60" />
               <p className="text-[12px] font-mono text-white/80 leading-relaxed max-w-[340px]">
-                Pick a target above, or start from one of these. Click any node afterwards to open it and pull in what is linked to it.
+                Pick a target above, or start from what is happening right now. Click any node afterwards to open it and pull in what is linked to it.
               </p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {SUGGESTIONS.map(sg => (
-                  <button key={sg.id} onClick={() => { setDraftType(sg.type); setDraftId(''); lockTarget(sg.type, sg.id); }}
-                    className="rounded-full border border-[var(--gold-primary)]/40 bg-[var(--gold-primary)]/10 px-3 py-1 text-[11px] font-mono text-[var(--gold-primary)] hover:bg-[var(--gold-primary)]/25 transition-colors">
-                    {sg.id}
-                  </button>
-                ))}
-              </div>
+              {(groups.length ? groups : [{ title: 'Start from', items: SUGGESTIONS.map(x => ({ ...x, note: '' })) }]).map(g => (
+                <div key={g.title} className="w-full">
+                  <div className="mb-1.5 text-[9px] font-mono uppercase tracking-widest text-white/70">{g.title}</div>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {g.items.map(sg => (
+                      <button key={`${sg.type}:${sg.id}`} onClick={() => { setDraftType(sg.type); setDraftId(''); lockTarget(sg.type, sg.id); }}
+                        className="rounded-full border border-[var(--gold-primary)]/40 bg-[var(--gold-primary)]/10 px-3 py-1 text-[11px] font-mono text-[var(--gold-primary)] hover:bg-[var(--gold-primary)]/20">
+                        {sg.id}{sg.note ? <span className="ml-1.5 text-white/60">{sg.note}</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
