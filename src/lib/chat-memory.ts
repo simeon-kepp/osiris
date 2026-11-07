@@ -20,7 +20,30 @@ const RECALL_BUDGET = 5000;
 export interface Fact { id: string; text: string; author: string; createdAt: string }
 
 export async function listFacts(): Promise<Fact[]> {
-  try { return JSON.parse(await fs.readFile(FILE, 'utf8')); } catch { return []; }
+  let raw: string;
+  try { raw = await fs.readFile(FILE, 'utf8'); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []; // no file yet is a real, empty state
+    throw e;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('facts file is not an array');
+    return parsed;
+  } catch (e) {
+    // Keep the unreadable file. Returning [] here let the next addFact write a
+    // one-fact file over the whole team memory.
+    await fs.copyFile(FILE, `${FILE}.corrupt-${Date.now()}`).catch(() => undefined);
+    throw e;
+  }
+}
+
+// addFact/forgetFacts are read-modify-write. Two at once (two operators saying
+// "merk dir" in the same second) would lose one, so they queue.
+let writeQueue: Promise<unknown> = Promise.resolve();
+function serialised<T>(job: () => Promise<T>): Promise<T> {
+  const run = writeQueue.then(job, job);
+  writeQueue = run.catch(() => undefined);
+  return run;
 }
 
 async function writeFacts(facts: Fact[]) {
@@ -30,7 +53,11 @@ async function writeFacts(facts: Fact[]) {
   await fs.rename(tmp, FILE);
 }
 
-export async function addFact(text: string, author: string): Promise<Fact> {
+export function addFact(text: string, author: string): Promise<Fact> {
+  return serialised(() => addFactNow(text, author));
+}
+
+async function addFactNow(text: string, author: string): Promise<Fact> {
   const facts = await listFacts();
   const clean = text.trim().slice(0, MAX_FACT_CHARS);
   const dup = facts.find(f => f.text.toLowerCase() === clean.toLowerCase());
@@ -41,7 +68,11 @@ export async function addFact(text: string, author: string): Promise<Fact> {
 }
 
 /** Removes every stored fact that contains `needle`; returns how many went. */
-export async function forgetFacts(needle: string): Promise<number> {
+export function forgetFacts(needle: string): Promise<number> {
+  return serialised(() => forgetFactsNow(needle));
+}
+
+async function forgetFactsNow(needle: string): Promise<number> {
   const n = needle.trim().toLowerCase();
   if (n.length < 2) return 0;
   const facts = await listFacts();

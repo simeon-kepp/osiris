@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'node:crypto';
 
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
@@ -31,6 +32,14 @@ if (!globalForSDK.sdkIngestLog) {
 // Fail-closed: require SDK_INGEST_KEY env var, disable endpoint when unset
 const SDK_KEY = process.env.SDK_INGEST_KEY;
 const VALID_KEYS = SDK_KEY ? new Set([SDK_KEY]) : null;
+const MAX_ENTITIES_PER_POST = 1000;
+const MAX_STORE = 5000; // oldest entity goes first; the stream only ever sends 500 anyway
+
+function keyMatches(given: unknown): boolean {
+  if (typeof given !== 'string' || !SDK_KEY) return false;
+  const a = Buffer.from(given), b = Buffer.from(SDK_KEY);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -55,7 +64,7 @@ export async function POST(request: NextRequest) {
         timestamp: new Date().toISOString(),
       }, { status: 503 });
     }
-    if (!VALID_KEYS.has(body.apiKey)) {
+    if (!keyMatches(body.apiKey)) {
       return NextResponse.json({
         accepted: 0,
         rejected: 0,
@@ -68,9 +77,18 @@ export async function POST(request: NextRequest) {
     let rejected = 0;
     const errors: string[] = [];
 
+    if (body.entities.length > MAX_ENTITIES_PER_POST) {
+      return NextResponse.json({
+        accepted: 0, rejected: body.entities.length,
+        errors: [`Too many entities in one request (max ${MAX_ENTITIES_PER_POST})`],
+        timestamp: new Date().toISOString(),
+      }, { status: 413 });
+    }
+
     for (const entity of body.entities) {
-      // Validate minimum required fields
-      if (!entity.id || !entity.position?.lat || !entity.position?.lng) {
+      // Validate minimum required fields. 0 is a real latitude and longitude, so test finiteness, not truthiness.
+      const lat = Number(entity?.position?.lat), lng = Number(entity?.position?.lng);
+      if (!entity?.id || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
         rejected++;
         errors.push(`Entity missing required fields (id, position.lat, position.lng): ${entity.id || 'unknown'}`);
         continue;
@@ -83,8 +101,8 @@ export async function POST(request: NextRequest) {
         domain: entity.domain || 'LAND',
         entityType: entity.entityType || 'TRACK',
         position: {
-          lat: entity.position.lat,
-          lng: entity.position.lng,
+          lat,
+          lng,
           alt: entity.position.alt,
           heading: entity.position.heading,
           speed: entity.position.speed,
@@ -108,7 +126,12 @@ export async function POST(request: NextRequest) {
         },
       };
 
+      globalForSDK.sdkEntityStore.delete(normalized.id); // re-insert so an updated entity counts as newest
       globalForSDK.sdkEntityStore.set(normalized.id, normalized);
+      if (globalForSDK.sdkEntityStore.size > MAX_STORE) {
+        const oldest = globalForSDK.sdkEntityStore.keys().next().value;
+        if (oldest !== undefined) globalForSDK.sdkEntityStore.delete(oldest);
+      }
       accepted++;
     }
 

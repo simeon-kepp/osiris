@@ -258,6 +258,8 @@ export async function POST(
       memory = (await recallMemory(query, body.chatId && validId(body.chatId) ? body.chatId : undefined)) + (note ? `\n\n${note}` : '');
     } catch (e) {
       console.warn('[DINGIR] memory unavailable:', e instanceof Error ? e.message : e);
+      // Say so, or the model confirms a "merk dir" that never reached the store.
+      memory = 'MEMORY is unavailable right now. Nothing was stored or removed. If the operator asked you to remember or forget something, tell them it did not work.';
     }
     const chatId = body.chatId && validId(body.chatId) ? body.chatId : undefined;
     const compacted = await compact(provider, sanitizeHistory(body.messages), chatId);
