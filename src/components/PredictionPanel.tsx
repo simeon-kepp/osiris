@@ -378,9 +378,6 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
 
               <div className="px-4 pt-4 pb-2 border-b border-white/[0.06]">
                 <div className="text-[10px] tracking-widest text-[var(--text-primary)]">THE EARTHQUAKES BEHIND THIS FORECAST</div>
-                <div className="mt-2 grid grid-cols-[minmax(0,2fr)_0.8fr_0.9fr_auto] gap-3 text-[8px] tracking-widest text-[#c3c8d2]">
-                  <span>EARTHQUAKE</span><span>CHANCE OF AFTERSHOCK</span><span>EXPECTED</span><span>SO FAR</span>
-                </div>
               </div>
 
               {/* ── one row per sequence ───────────────────────────────── */}
@@ -388,53 +385,40 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                 const pctv = m.percent_at_least_one ?? 0;
                 const chainOpen = openChain === m.mainshock_id;
                 return (
-                  <div key={m.mainshock_id} className="border-b border-white/[0.04]">
-                    {/* TITLE -> whitebox on the mainshock node */}
-                    <button
-                      onClick={() => onInspect?.(`QUAKE:${m.mainshock_id}`)}
-                      title={tr('pred.title.hint')}
-                      className="grid w-full grid-cols-[minmax(0,2fr)_0.8fr_0.9fr_auto] items-center gap-3 text-left px-4 py-3 hover:bg-white/[0.03] transition-colors group">
-                      <span className="text-[11px] tabular-nums text-[var(--text-primary)] group-hover:text-[var(--cyan-primary)] transition-colors truncate">
+                  <div key={m.mainshock_id}
+                    className={`mx-3 my-2.5 rounded-lg border px-3.5 py-3 transition-colors ${chainOpen ? 'border-[var(--cyan-primary)]/50 bg-[#0f1a28]' : 'border-white/10 bg-[#0d1420]'}`}>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <button
+                        onClick={() => onInspect?.(`QUAKE:${m.mainshock_id}`)}
+                        title={tr('pred.title.hint')}
+                        className="min-w-0 truncate text-left text-[12px] text-white hover:text-[var(--cyan-primary)] transition-colors">
                         M{m.mainshock_mag} · {m.mainshock_place}
-                      </span>
-                      <span className="tabular-nums text-[15px]" style={{ color: probColour(pctv) }}>{pctv.toFixed(1)}%</span>
-                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">~{m.predicted_count}</span>
-                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">{m.aftershocks_observed_so_far}</span>
-                    </button>
-
-                    {/* BODY -> the causality chain */}
-                    <div
-                      onClick={() => setOpenChain(chainOpen ? null : m.mainshock_id)}
-                      onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') setOpenChain(chainOpen ? null : m.mainshock_id); }}
-                      role="button" tabIndex={0} title={tr('pred.body.hint')}
-                      className={`block w-full text-left px-4 pb-2.5 hover:bg-white/[0.03] transition-colors ${chainOpen ? 'bg-white/[0.03]' : ''}`}>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-[10px] tabular-nums text-[#c3c8d2]">
-                          {m.aftershock_zone_radius_km} km zone · {m.horizon_days} days
-                        </span>
-                        {m.verdict && (
-                          <span className={`ml-auto text-[8px] tabular-nums tracking-widest border rounded px-1 ${
-                            m.verdict === 'HIT'
-                              ? 'text-[#00f5c4] border-[#00f5c4]/40'
-                              : 'text-[#ff6b6b] border-[#ff6b6b]/40'}`}>
-                            {m.verdict} {m.actual_count}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 text-[10px] tabular-nums text-[#c3c8d2]">
-                        <button onClick={event => { event.stopPropagation(); setOpenChain(chainOpen ? null : m.mainshock_id); }} className="ml-1 rounded border border-[var(--cyan-primary)]/40 px-1.5 py-0.5 text-[var(--cyan-primary)] hover:bg-[var(--cyan-primary)]/10">
-                          {chainOpen ? tr('pred.chain.hide') : tr('pred.chain.show')}
-                        </button>
-                      </div>
+                      </button>
+                      <span className="shrink-0 tabular-nums text-[18px] leading-none" style={{ color: probColour(pctv) }}>{pctv.toFixed(0)}%</span>
                     </div>
-
+                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, pctv)}%`, background: probColour(pctv) }} />
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 text-[10px] tabular-nums text-[#c3c8d2]">
+                      <span>about {Math.round(m.predicted_count)} {Math.round(m.predicted_count) === 1 ? "aftershock" : "aftershocks"} expected · {m.aftershocks_observed_so_far} so far · {m.horizon_days} days</span>
+                      {m.verdict && (
+                        <span className={`text-[8px] tracking-widest border rounded px-1 ${m.verdict === 'HIT' ? 'text-[#00f5c4] border-[#00f5c4]/40' : 'text-[#ff6b6b] border-[#ff6b6b]/40'}`}>
+                          {m.verdict} {m.actual_count}
+                        </span>
+                      )}
+                      <button onClick={() => setOpenChain(chainOpen ? null : m.mainshock_id)}
+                        className="ml-auto shrink-0 text-[var(--cyan-primary)] hover:underline">
+                        {chainOpen ? 'hide why' : 'why this number →'}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
 
               {/* ── method footer: the same for every row, so it is stated
                   once rather than nine times ─────────────────────────── */}
-              <div className="px-4 py-3 text-[9px] tabular-nums text-[#c3c8d2] leading-relaxed">
+              <details className="px-4 py-3 text-[9px] tabular-nums text-[#c3c8d2] leading-relaxed">
+                <summary className="cursor-pointer text-[10px] text-[#e4e8ef]">How the numbers are made</summary>
                 {f.method.law}<br />
                 p={f.method.p_fitted_on_our_catalogue} (published {f.method.p_published_range[0]}–{f.method.p_published_range[1]}) ·
                 {' '}c={f.method.c_days_ASSUMED_not_fitted}d assumed · M≥{f.method.min_magnitude}<br />
@@ -444,7 +428,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                     {data.source.malformed_lines_skipped} {tr('pred.skipped')}
                   </span></>
                 ) : null}
-              </div>
+              </details>
               <div className="sticky bottom-0 flex items-center justify-between gap-3 px-4 py-3 border-t border-white/[0.10] bg-[#0c1018]/95 backdrop-blur-md text-[9px] shrink-0">
                 <div className="text-[#c3c8d2]">AUTO-UPDATE <span className="text-[#00f5c4]">● Aktiv</span></div>
                 <div className="flex items-center gap-4">
