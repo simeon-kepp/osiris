@@ -19,7 +19,7 @@ import { currentLogin } from '@/lib/dingirSessionServer';
 // often the graph actually changes.
 
 const DINGIR_API_URL = process.env.DINGIR_API_URL || 'http://127.0.0.1:8080';
-const DINGIR_API_KEY = process.env.DINGIR_API_KEY || 'rfi-demo-2026';
+const DINGIR_API_KEY = process.env.DINGIR_API_KEY || '';
 
 // THE BODY IS CACHED AS TEXT, NOT AS A PARSED OBJECT. The measured cost of
 // `await upstream.json()` followed by `NextResponse.json(body)` on this payload

@@ -1,3 +1,4 @@
+import { SESSION_COOKIE, decodeSession } from './dingirAuth';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
@@ -223,6 +224,7 @@ export function isRateLimited(ip: string, limit: number = 20, windowMs: number =
   for (const [key, entry] of rateMap) {
     if (now > entry.resetAt) rateMap.delete(key);
   }
+  if (rateMap.size > 5000) rateMap.clear(); // hard ceiling: a key-spraying client cannot grow memory
   const entry = rateMap.get(ip);
   if (!entry || now > entry.resetAt) {
     rateMap.set(ip, { count: 1, resetAt: now + windowMs });
@@ -232,7 +234,25 @@ export function isRateLimited(ip: string, limit: number = 20, windowMs: number =
   return entry.count > limit;
 }
 
+/** Rate-limit key. A signed session is the only identity a client cannot pick
+ *  for itself, so it wins. X-Forwarded-For is client-controlled unless a proxy we
+ *  run overwrites it, so it is read only with TRUST_PROXY=1, and then only the
+ *  LAST hop (the one our own proxy appended). Everyone else shares one 'anon'
+ *  bucket: stricter than per-IP, but a rotating header can no longer reset it. */
 export function getClientIp(req: Request): string {
-  const forwarded = req.headers.get('x-forwarded-for');
-  return forwarded?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
+  const secret = process.env.DINGIR_AUTH_SECRET;
+  const cookie = req.headers.get('cookie') || '';
+  if (secret && cookie) {
+    for (const part of cookie.split(';')) {
+      const i = part.indexOf('=');
+      if (i < 0 || part.slice(0, i).trim() !== SESSION_COOKIE) continue;
+      const login = decodeSession(decodeURIComponent(part.slice(i + 1).trim()), secret, Date.now());
+      if (login) return `u:${login}`;
+    }
+  }
+  if (process.env.TRUST_PROXY === '1') {
+    const hops = (req.headers.get('x-forwarded-for') || '').split(',').map(h => h.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
+  return 'anon';
 }

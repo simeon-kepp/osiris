@@ -13,7 +13,7 @@ import { currentLogin } from '@/lib/dingirSessionServer';
 export const dynamic = 'force-dynamic';
 
 const DINGIR_API_URL = process.env.DINGIR_API_URL || 'http://127.0.0.1:8080';
-const DINGIR_API_KEY = process.env.DINGIR_API_KEY || 'rfi-demo-2026';
+const DINGIR_API_KEY = process.env.DINGIR_API_KEY || '';
 
 const POLL_MS = 60_000;      // 60/hour, comfortably inside bi_api's budget
 const HEARTBEAT_MS = 15_000; // keeps proxies from closing an idle stream

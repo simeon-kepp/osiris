@@ -11,7 +11,7 @@ import { currentLogin } from '@/lib/dingirSessionServer';
 // not per request, so a process-lifetime cache is the right granularity.
 
 const DINGIR_API_URL = process.env.DINGIR_API_URL || 'http://127.0.0.1:8080';
-const DINGIR_API_KEY = process.env.DINGIR_API_KEY || 'rfi-demo-2026';
+const DINGIR_API_KEY = process.env.DINGIR_API_KEY || '';
 
 type NodeRef = { id: string; type: string };
 let cache: NodeRef[] | null = null;

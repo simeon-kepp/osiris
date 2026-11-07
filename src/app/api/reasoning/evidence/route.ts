@@ -14,7 +14,7 @@ import { currentLogin } from '@/lib/dingirSessionServer';
 // Gated like the rest of the reasoning surface: no session, 404 not 403.
 
 const DINGIR_API_URL = process.env.DINGIR_API_URL || 'http://127.0.0.1:8080';
-const DINGIR_API_KEY = process.env.DINGIR_API_KEY || 'rfi-demo-2026';
+const DINGIR_API_KEY = process.env.DINGIR_API_KEY || '';
 
 export async function GET(req: Request) {
   if (!(await currentLogin())) return new NextResponse(null, { status: 404 });

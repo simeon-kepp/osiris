@@ -14,7 +14,7 @@ import { currentLogin } from '@/lib/dingirSessionServer';
 // only one. DINGIR_API_URL points at it on the same machine as `next dev`.
 
 const DINGIR_API_URL = process.env.DINGIR_API_URL || 'http://127.0.0.1:8080';
-const DINGIR_API_KEY = process.env.DINGIR_API_KEY || 'rfi-demo-2026';
+const DINGIR_API_KEY = process.env.DINGIR_API_KEY || '';
 
 export async function GET(req: Request) {
   if (!(await currentLogin())) return new NextResponse(null, { status: 404 });

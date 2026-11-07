@@ -12,6 +12,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveProvider } from '@/lib/ai-engine';
+import { currentLogin } from '@/lib/dingirSessionServer';
+import { isRateLimited, getClientIp } from '@/lib/ssrf-guard';
+
+const MAX_BODY_BYTES = 500_000;
 
 export const dynamic = 'force-dynamic';
 
@@ -238,9 +242,17 @@ async function modelOverview(mode: Mode, digest: Digest): Promise<{ text: string
 /* ─────────────────────────── Handler ─────────────────────────── */
 
 export async function POST(request: NextRequest) {
+  if (isRateLimited(`overview:${getClientIp(request)}`, 20, 60_000)) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+  }
+  if (Number(request.headers.get('content-length') || 0) > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: 'Payload too large' }, { status: 413 });
+  }
   let body: { mode?: Mode; payload?: any };
   try {
-    body = await request.json();
+    const raw = await request.text();
+    if (raw.length > MAX_BODY_BYTES) return NextResponse.json({ error: 'Payload too large' }, { status: 413 });
+    body = JSON.parse(raw);
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
@@ -252,7 +264,9 @@ export async function POST(request: NextRequest) {
     : mode === 'chain' ? digestChain(body.payload)
     : digestAlerts(body.payload);
 
-  const fromModel = await modelOverview(mode, digest);
+  // The model costs money, so only a signed-in session reaches it. Guests keep
+  // the button working through the heuristic renderer.
+  const fromModel = (await currentLogin()) ? await modelOverview(mode, digest) : null;
   const overview = fromModel?.text ?? heuristicOverview(mode, digest);
   // Names the actual model rather than a hardcoded 'gemini', so the panel can
   // never claim a provider that did not answer.

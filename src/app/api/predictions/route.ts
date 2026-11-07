@@ -91,8 +91,6 @@ type LedgerRun = {
 };
 
 async function compute() {
-  if (!(await currentLogin())) return new NextResponse(null, { status: 404 });
-
   try {
     const [preds, ledger, worker] = await Promise.all([
       readJsonl(PREDICTIONS), readJsonl(LEDGER), readWorkerState(),
@@ -169,5 +167,8 @@ async function compute() {
 }
 
 export async function GET() {
+  // The gate sits BEFORE the cache. Inside compute() it ran only on a cache
+  // miss, so one signed-in visit served the scoreboard to anyone for 60 s.
+  if (!(await currentLogin())) return new NextResponse(null, { status: 404 });
   return cachedRoute('src/app/api/predictions/route.ts', 60000, () => compute());
 }
