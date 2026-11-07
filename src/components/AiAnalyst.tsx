@@ -19,6 +19,12 @@ import {
   Check,
   Trash2,
   Globe,
+  History as HistoryIcon,
+  Plus,
+  Maximize2,
+  Minimize2,
+  Paperclip,
+  Copy,
 } from 'lucide-react';
 import type { IntelligenceContext, GraphContext, GraphEdgeFact } from '@/lib/ai-engine';
 import { useLocale } from '@/lib/LocaleProvider';
@@ -106,7 +112,18 @@ interface ChatMessage {
   content: string;
   timestamp: string;
   isError?: boolean;
+  /** GitHub login of the sender, stamped by the server once the conversation is saved. */
+  author?: string;
 }
+
+/** A conversation in the team list. The list carries metadata only; messages load when one is opened. */
+interface ChatSession { id: string; title: string; updatedAt: string; author?: string; count: number; messages?: ChatMessage[] }
+/** Conversations live on the server (shared by the whole team). The browser keeps only which one was open
+ *  last, and the old per-browser list, which is uploaded once and then removed. */
+const LEGACY_SESSIONS_KEY = 'dingir-chat-sessions';
+const CURRENT_KEY = 'dingir-chat-current';
+const MAX_SESSION_MESSAGES = 300;
+const CHAT_REFRESH_MS = 15_000;
 
 interface AiAnalystProps {
   data: DashboardData;
@@ -120,6 +137,8 @@ interface AiAnalystProps {
    *  the reasoning graph as well as the live feeds. Off on the public demo,
    *  where the graph is not exposed at all. */
   graphEnabled?: boolean;
+  /** Distance from the right edge at md+; the dock reserves the rail and any open forecast/feed. */
+  offsetRight?: number;
   /** The node the operator currently has open, if any. */
   focusNode?: string;
 }
@@ -324,13 +343,132 @@ function renderMarkdown(text: string): string {
    Component
    ───────────────────────────────────────────────────────────── */
 
-export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose }: AiAnalystProps) {
+/** Writes a fresh answer out progressively so a long reply reads as it arrives, not as one wall of
+ *  text. The reply is already complete on the client; this only paces how it appears (~2.5 s at most),
+ *  and restored conversations skip it. */
+function RevealedMarkdown({ text, animate, className, onTick }: { text: string; animate: boolean; className: string; onTick?: () => void }) {
+  const [n, setN] = useState(animate ? 0 : text.length);
+  useEffect(() => {
+    if (!animate || n >= text.length) return;
+    const step = Math.max(8, Math.ceil(text.length / 150));
+    const t = setTimeout(() => { setN(v => Math.min(text.length, v + step)); onTick?.(); }, 16);
+    return () => clearTimeout(t);
+  }, [n, text, animate, onTick]);
+  return <div className={className} dangerouslySetInnerHTML={{ __html: renderMarkdown(text.slice(0, animate ? n : text.length)) }} />;
+}
+
+export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusNode, open, onClose }: AiAnalystProps) {
   const { t: tr } = useLocale();
   const isOpen = open;
   const setIsOpen = (v: boolean) => { if (!v) onClose(); };
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessionId, setSessionId] = useState<string>(() => generateId());
+  const [showHistory, setShowHistory] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  /** Fullscreen keeps the conversation list as a permanent left column, like a normal chat app. */
+  const [sideOpen, setSideOpen] = useState(true);
+  /** An older conversation the operator pinned as reference for the next questions. */
+  const [attachedId, setAttachedId] = useState<string | null>(null);
+  const sessionsHydrated = useRef(false);
+  /** Ids of answers that arrived in this view and should be written out, not shown at once. */
+  const freshRef = useRef<Set<string>>(new Set());
+
+  const refreshSessions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/chats');
+      if (!res.ok) return;
+      const { chats } = await res.json();
+      setSessions(chats as ChatSession[]);
+    } catch { /* offline: keep what is shown */ }
+  }, []);
+
+  const loadSession = useCallback(async (id: string): Promise<ChatMessage[] | null> => {
+    try {
+      const res = await fetch(`/api/chats/${encodeURIComponent(id)}`);
+      if (!res.ok) return null;
+      return (await res.json()).messages as ChatMessage[];
+    } catch { return null; }
+  }, []);
+
+  // On mount: upload any conversations the old per-browser store still holds, then load the team list
+  // and reopen the conversation that was open last.
+  useEffect(() => {
+    (async () => {
+      try {
+        const legacy: { id: string; title: string; messages: ChatMessage[] }[] = JSON.parse(localStorage.getItem(LEGACY_SESSIONS_KEY) || '[]');
+        for (const l of legacy) {
+          await fetch(`/api/chats/${encodeURIComponent(l.id)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: l.title, messages: l.messages }),
+          });
+        }
+        if (legacy.length) localStorage.removeItem(LEGACY_SESSIONS_KEY);
+      } catch { /* corrupt or offline: leave it for the next start */ }
+      await refreshSessions();
+      const last = localStorage.getItem(CURRENT_KEY);
+      if (last) {
+        const msgs = await loadSession(last);
+        if (msgs) { setSessionId(last); setMessages(msgs); }
+      }
+      sessionsHydrated.current = true;
+    })();
+  }, [refreshSessions, loadSession]);
+
+  // Other people add conversations too: refresh the list while the panel is open.
+  useEffect(() => {
+    if (!isOpen) return;
+    const t = setInterval(refreshSessions, CHAT_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [isOpen, refreshSessions]);
+
+  // Save the open conversation shortly after it changes. The server merges by message id.
+  useEffect(() => {
+    if (!sessionsHydrated.current || messages.length === 0) return;
+    const firstUser = messages.find(m => m.role === 'user')?.content ?? 'Conversation';
+    const title = firstUser.replace(/\s+/g, ' ').slice(0, 70);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/chats/${encodeURIComponent(sessionId)}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, messages: messages.slice(-MAX_SESSION_MESSAGES) }),
+        });
+        if (res.ok) { localStorage.setItem(CURRENT_KEY, sessionId); refreshSessions(); }
+      } catch { /* retried on the next change */ }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [messages, sessionId, refreshSessions]);
+
+  const [historyNote, setHistoryNote] = useState('');
+  const newChat = useCallback(() => {
+    setMessages([]);
+    setSessionId(generateId());
+    setAttachedId(null);
+    setShowHistory(false);
+    try { localStorage.setItem(CURRENT_KEY, ''); } catch { /* ignore */ }
+  }, []);
+  const openSession = useCallback(async (sess: ChatSession) => {
+    const msgs = await loadSession(sess.id);
+    if (!msgs) { setHistoryNote('Could not open this conversation.'); return; }
+    setSessionId(sess.id);
+    setMessages(msgs);
+    setShowHistory(false);
+    try { localStorage.setItem(CURRENT_KEY, sess.id); } catch { /* ignore */ }
+  }, [loadSession]);
+  const deleteSession = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/chats/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (res.status === 403) { setHistoryNote('Only the person who started a conversation can delete it.'); return; }
+      if (res.ok) setHistoryNote('');
+    } catch { /* ignore */ }
+    if (id === sessionId) { setMessages([]); setSessionId(generateId()); }
+    setAttachedId(a => (a === id ? null : a));
+    refreshSessions();
+  }, [sessionId, refreshSessions]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  /** True from the first streamed token on; the "thinking" bubble gives way to the growing answer. */
+  const [streaming, setStreaming] = useState(false);
   const [briefingInFlight, setBriefingInFlight] = useState(false);
   const [thinkingLabel, setThinkingLabel] = useState('Thinking');
   const [showSettings, setShowSettings] = useState(false);
@@ -434,35 +572,77 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
       if (graphEnabled) context.graph = await fetchGraphContext(focusNode);
       // Earlier turns go as real chat messages; the route trims them. Error
       // bubbles are UI, not something DINGIR said, so they stay out.
-      const history = messages
+      const own = messages
         .filter(m => !m.isError)
         .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
+      // Back-reference: an older conversation the operator pinned rides along as the first turns.
+      const attached = attachedId ? sessions.find(x => x.id === attachedId) : undefined;
+      const attachedMsgs = attached ? (attached.messages ?? await loadSession(attached.id) ?? []) : [];
+      const earlier = attached ? [
+        { role: 'user', content: `[Reference: earlier conversation "${attached.title}"]\n` +
+          attachedMsgs.filter(m => !m.isError).map(m => `${m.role === 'user' ? 'Operator' : 'DINGIR'}: ${m.content}`).join('\n').slice(0, 6000) },
+        { role: 'assistant', content: 'Understood. I will use that earlier conversation as reference.' },
+      ] : [];
+      const history = [...earlier, ...own];
       const res = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ query, messages: history, context, webSearch }),
+        body: JSON.stringify({ query, messages: history, context, webSearch, stream: true, chatId: sessionId }),
       });
 
-      const json = await res.json();
-
-      if (!res.ok) {
-        const errorBody = json as { error: string; code: string; retryAfter?: number };
+      if (!res.ok || !res.body) {
+        const errorBody = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(errorBody.error || `HTTP ${res.status}`);
       }
 
-      const responseBody = json as { analysis: string; model: string; timestamp: string; web?: { searched: boolean; pages: number } };
-
-      if (responseBody.model) {
-        const via = [responseBody.web?.searched && 'WEB', responseBody.web?.pages && `${responseBody.web.pages} LINK`].filter(Boolean).join(' + ');
-        setProviderLabel(`${responseBody.model.toUpperCase()}${via ? ` · ${via}` : ''}`);
-      }
-      const analystMsg: ChatMessage = {
-        id: generateId(),
-        role: 'analyst',
-        content: responseBody.analysis,
-        timestamp: responseBody.timestamp,
+      // The answer arrives as JSON lines: {"t": text}…, then {"done": true, model, timestamp, web} or {"error"}.
+      // Text is painted at most once per frame, however fast the model delivers it.
+      const analystId = generateId();
+      let text = '';
+      let frame = 0;
+      const paint = () => {
+        frame = 0;
+        setMessages(prev => prev.map(m => (m.id === analystId ? { ...m, content: text } : m)));
+        messagesEndRef.current?.scrollIntoView({ block: 'end' });
       };
-      setMessages((prev) => [...prev, analystMsg]);
+      let started = false;
+      let finished = false;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          const ev = JSON.parse(line) as { t?: string; done?: boolean; error?: string; model?: string; timestamp?: string; web?: { searched: boolean; pages: number } };
+          if (ev.error) throw new Error(ev.error);
+          if (ev.t) {
+            text += ev.t;
+            if (!started) {
+              started = true;
+              setStreaming(true);
+              setMessages(prev => [...prev, { id: analystId, role: 'analyst', content: text, timestamp: new Date().toISOString() }]);
+            } else if (!frame) {
+              frame = requestAnimationFrame(paint);
+            }
+          }
+          if (ev.done) {
+            finished = true;
+            if (ev.model) {
+              const via = [ev.web?.searched && 'WEB', ev.web?.pages && `${ev.web.pages} LINK`].filter(Boolean).join(' + ');
+              setProviderLabel(`${ev.model.toUpperCase()}${via ? ` · ${via}` : ''}`);
+            }
+          }
+        }
+      }
+      if (frame) cancelAnimationFrame(frame);
+      if (started) paint();
+      if (!finished && !started) throw new Error('The model sent no answer. Try again.');
     } catch (err: unknown) {
       const message = err instanceof TypeError && err.message === 'Failed to fetch'
         ? 'DINGIR API is unreachable. Check that `dingir status` shows web and engine online, then retry.'
@@ -476,9 +656,10 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
+      setStreaming(false);
       setIsLoading(false);
     }
-  }, [inputText, isLoading, messages, data, getHeaders, graphEnabled, focusNode, webSearch]);
+  }, [inputText, isLoading, messages, data, getHeaders, graphEnabled, focusNode, webSearch, attachedId, sessions, loadSession, sessionId]);
 
   const handleBriefing = useCallback(async (request = 'Generate the full current intelligence briefing.') => {
     if (isLoading) return;
@@ -519,6 +700,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
         content: responseBody.briefing,
         timestamp: responseBody.generatedAt,
       };
+      freshRef.current.add(analystMsg.id);
       setMessages((prev) => [...prev, analystMsg]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Briefing generation failed';
@@ -564,8 +746,8 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
   }, []);
 
   const clearMessages = useCallback(() => {
-    setMessages([]);
-  }, []);
+    deleteSession(sessionId);
+  }, [deleteSession, sessionId]);
 
   /* ── Panel ── */
   return (
@@ -585,12 +767,15 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
 
             {/* Main Panel */}
             <motion.div
+              layout
               initial={{ opacity: 0, y: 40, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 40, scale: 0.95 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-              className="fixed inset-x-0 bottom-0 right-0 md:inset-x-auto md:top-6 md:bottom-6 md:right-16 z-[700] w-full md:w-[min(560px,42vw)] h-[85vh] md:h-auto md:max-h-none flex flex-col md:rounded-2xl overflow-hidden border border-white/10 bg-[#080c15]"
+              transition={{ type: 'spring', stiffness: 300, damping: 25, layout: { type: 'tween', duration: 0.38, ease: [0.2, 0.8, 0.2, 1] } }}
+              className="fixed inset-x-0 bottom-0 right-0 md:inset-x-auto md:top-6 md:bottom-6 md:right-[var(--dock-right)] z-[700] w-full md:w-[min(560px,42vw)] h-[85vh] md:h-auto md:max-h-none flex flex-col md:rounded-2xl overflow-hidden border border-white/10 bg-[#080c15]"
               style={{
+                ['--dock-right' as string]: `${offsetRight}px`,
+                ...(expanded ? { top: 12, bottom: 12, left: 12, right: 12, width: 'auto', height: 'auto' } : {}),
                 background: 'linear-gradient(180deg, rgba(8, 10, 20, 0.96) 0%, rgba(6, 6, 12, 0.98) 100%)',
                 border: '1px solid rgba(212, 175, 55, 0.2)',
                 boxShadow:
@@ -624,10 +809,25 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                     <span className="text-[9px] font-mono tracking-[0.15em] text-[#b8c1cf]">
                       CHAT · {providerLabel}
                     </span>
+                    {attachedId && (
+                      <button onClick={() => setAttachedId(null)} className="mt-0.5 flex items-center gap-1 text-[9px] font-mono text-[var(--gold-primary)] hover:text-white" title="Stop using this conversation as reference">
+                        <Paperclip className="w-2.5 h-2.5" /> {(sessions.find(x => x.id === attachedId)?.title ?? '').slice(0, 36)} <X className="w-2.5 h-2.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1">
+                  <button onClick={newChat} className="p-1.5 rounded-lg hover:bg-[var(--hover-accent)] transition-colors group" title="New chat">
+                    <Plus className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]" />
+                  </button>
+                  <button onClick={() => (expanded ? setSideOpen(o => !o) : setShowHistory(h => !h))} className={`relative p-1.5 rounded-lg transition-colors group ${(expanded ? sideOpen : showHistory) ? 'bg-[var(--hover-accent)]' : 'hover:bg-[var(--hover-accent)]'}`} title="Earlier conversations">
+                    <HistoryIcon className={`w-3.5 h-3.5 ${(expanded ? sideOpen : showHistory) ? 'text-[var(--gold-primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`} />
+                    {sessions.length > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-3 rounded-full bg-[var(--gold-primary)] px-0.5 text-[7px] font-bold leading-3 text-black text-center">{sessions.length}</span>}
+                  </button>
+                  <button onClick={() => setExpanded(x => !x)} className="p-1.5 rounded-lg hover:bg-[var(--hover-accent)] transition-colors group" title={expanded ? 'Shrink' : 'Fullscreen'}>
+                    {expanded ? <Minimize2 className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]" /> : <Maximize2 className="w-3.5 h-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]" />}
+                  </button>
                   <button
                     onClick={toggleWebSearch}
                     aria-pressed={webSearch}
@@ -670,6 +870,32 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                 </div>
               </div>
 
+              {/* ── History overlay ── */}
+              {((showHistory && !expanded) || (expanded && sideOpen)) && (
+                <div className={`absolute top-[57px] bottom-0 z-20 overflow-y-auto styled-scrollbar bg-[#080c15]/98 backdrop-blur-md p-3 space-y-1.5 ${expanded ? 'left-0 w-[280px] border-r border-white/10' : 'inset-x-0'}`}>
+                  <div className="flex items-center justify-between px-1 pb-1">
+                    <span className="hud-label" style={{ fontSize: '10px' }}>TEAM CONVERSATIONS · {sessions.length}</span>
+                    <button onClick={newChat} className="flex items-center gap-1 rounded border border-white/10 px-2 py-1 text-[10px] font-mono text-[var(--text-primary)] hover:border-[var(--gold-primary)]/60"><Plus className="w-3 h-3" /> NEW</button>
+                  </div>
+                  {historyNote && <div className="px-1 text-[11px] font-mono text-[var(--alert-red)]">{historyNote}</div>}
+                  {sessions.length === 0 && <div className="px-1 py-6 text-center text-[11px] font-mono text-[var(--text-muted)]">Nothing saved yet. Conversations are saved for the whole team automatically.</div>}
+                  {sessions.map(sess => (
+                    <div key={sess.id} className={`group flex items-center gap-2 rounded-lg border px-3 py-2 ${sess.id === sessionId ? 'border-[var(--gold-primary)]/50 bg-white/[0.04]' : 'border-white/5 hover:border-white/15'}`}>
+                      <button onClick={() => openSession(sess)} className="min-w-0 flex-1 text-left">
+                        <div className="truncate text-[12px] text-[var(--text-primary)]">{sess.title}</div>
+                        <div className="text-[9px] font-mono text-[var(--text-muted)]">{new Date(sess.updatedAt).toLocaleString()} · {sess.count} msgs{sess.author ? ` · ${sess.author}` : ''}</div>
+                      </button>
+                      {sess.id !== sessionId && (
+                        <button onClick={() => { setAttachedId(sess.id); setShowHistory(false); }} title="Use as reference in the current chat" className={`p-1.5 rounded hover:bg-white/10 ${attachedId === sess.id ? 'text-[var(--gold-primary)]' : 'text-[var(--text-muted)]'}`}>
+                          <Paperclip className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button onClick={() => deleteSession(sess.id)} title="Delete" className="p-1.5 rounded text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--alert-red)]"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* ── Settings Panel ── */}
               <AnimatePresence>
                 {showSettings && (
@@ -679,6 +905,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden shrink-0"
+                    style={expanded && sideOpen ? { marginLeft: 280 } : undefined}
                   >
                     <div
                       className="px-4 py-3 space-y-2.5"
@@ -763,7 +990,8 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
               </AnimatePresence>
 
               {/* ── Messages Area ── */}
-              <div className="flex-1 overflow-y-auto styled-scrollbar px-4 py-3 space-y-3">
+              <div className={`flex-1 overflow-y-auto styled-scrollbar ${expanded ? 'px-8 py-6' : 'px-4 py-3'}`} style={expanded && sideOpen ? { paddingLeft: 312 } : undefined}>
+               <div className={expanded ? 'mx-auto w-full max-w-[820px] space-y-7' : 'space-y-3'}>
                 {/* Empty state */}
                 {messages.length === 0 && !isLoading && (
                   <div className="h-full flex flex-col items-center justify-center text-center px-6 gap-5">
@@ -840,7 +1068,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[90%] rounded-xl px-3.5 py-2.5 ${
+                      className={`${expanded ? (msg.role === 'user' ? 'max-w-[72%]' : 'w-full') : 'max-w-[90%]'} rounded-xl ${expanded && msg.role !== 'user' ? 'px-1 py-1' : 'px-3.5 py-2.5'} ${
                         msg.role === 'user' ? 'rounded-br-sm' : 'rounded-bl-sm'
                       }`}
                       style={
@@ -854,6 +1082,8 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                               background: 'linear-gradient(135deg, rgba(255, 61, 61, 0.1) 0%, rgba(255, 61, 61, 0.05) 100%)',
                               border: '1px solid rgba(255, 61, 61, 0.2)',
                             }
+                          : expanded
+                          ? { background: 'transparent', border: 'none' }
                           : {
                               background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, rgba(212, 175, 55, 0.03) 100%)',
                               border: '1px solid rgba(212, 175, 55, 0.12)',
@@ -879,7 +1109,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                               : 'var(--gold-primary)',
                           }}
                         >
-                          {msg.role === 'user' ? 'OPERATOR' : 'DINGIR ANALYST'}
+                          {msg.role === 'user' ? (msg.author ? msg.author.toUpperCase() : 'OPERATOR') : 'DINGIR ANALYST'}
                         </span>
                         <span className="text-[9px] font-mono text-[var(--text-muted)] ml-auto">
                           {new Date(msg.timestamp).toLocaleTimeString([], {
@@ -891,12 +1121,23 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
 
                       {/* Message content */}
                       {msg.role === 'analyst' && !msg.isError ? (
-                        <div
-                          className="text-[13px] text-[var(--text-primary)] leading-[1.6] whitespace-pre-wrap break-words"
-                          dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                        <>
+                        <RevealedMarkdown
+                          text={msg.content}
+                          animate={freshRef.current.has(msg.id)}
+                          onTick={() => messagesEndRef.current?.scrollIntoView({ block: 'end' })}
+                          className={`${expanded ? 'text-[15px] leading-[1.75]' : 'text-[13px] leading-[1.6]'} text-[var(--text-primary)] whitespace-pre-wrap break-words`}
                         />
+                        <button
+                          onClick={() => navigator.clipboard?.writeText(msg.content)}
+                          className="mt-2 flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-mono text-[var(--text-muted)] hover:bg-white/10 hover:text-[var(--text-primary)] transition-colors"
+                          title="Copy answer"
+                        >
+                          <Copy className="w-3 h-3" /> COPY
+                        </button>
+                        </>
                       ) : (
-                        <p className="text-[13px] text-[var(--text-primary)] leading-[1.6] whitespace-pre-wrap break-words">
+                        <p className={`${expanded ? 'text-[15px] leading-[1.75]' : 'text-[13px] leading-[1.6]'} text-[var(--text-primary)] whitespace-pre-wrap break-words`}>
                           {msg.content}
                         </p>
                       )}
@@ -905,7 +1146,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                 ))}
 
                 {/* Loading indicator */}
-                {isLoading && (
+                {isLoading && !streaming && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -936,6 +1177,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                 )}
 
                 <div ref={messagesEndRef} />
+               </div>
               </div>
 
               {/* ── Input Area ── */}
@@ -944,8 +1186,10 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                 style={{
                   borderTop: '1px solid rgba(212, 175, 55, 0.1)',
                   background: 'rgba(6, 6, 12, 0.8)',
+                  ...(expanded && sideOpen ? { paddingLeft: 292 } : {}),
                 }}
               >
+               <div className={expanded ? 'mx-auto w-full max-w-[820px]' : ''}>
                 {/* Quick action */}
                 <div className="relative flex gap-2 mb-2">
                   <button
@@ -1005,10 +1249,10 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                 {/* Input row */}
                 <div className="flex gap-2 items-end">
                   <div
-                    className="flex-1 rounded-xl overflow-hidden transition-colors"
+                    className={`flex-1 overflow-hidden transition-colors ${expanded ? 'rounded-3xl px-2' : 'rounded-xl'}`}
                     style={{
                       background: 'var(--bg-tertiary)',
-                      border: '1px solid rgba(212, 175, 55, 0.1)',
+                      border: expanded ? '1px solid rgba(255, 255, 255, 0.16)' : '1px solid rgba(212, 175, 55, 0.1)',
                     }}
                   >
                     <textarea
@@ -1018,7 +1262,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                       onKeyDown={handleKeyDown}
                       placeholder={tr('analyst.placeholder')}
                       rows={1}
-                      className="w-full bg-transparent px-3 py-2.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none"
+                      className={`w-full bg-transparent px-3 py-2.5 ${expanded ? 'text-[15px]' : 'text-[13px]'} text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none`}
                       style={{ maxHeight: '120px', minHeight: '36px' }}
                       disabled={isLoading}
                       onInput={(e) => {
@@ -1034,7 +1278,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                     whileTap={{ scale: 0.95 }}
                     onClick={handleSend}
                     disabled={!inputText.trim() || isLoading}
-                    className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-30"
+                    className={`shrink-0 ${expanded ? 'w-10 h-10 rounded-full' : 'w-9 h-9 rounded-xl'} flex items-center justify-center transition-all disabled:opacity-30`}
                     style={{
                       background:
                         inputText.trim() && !isLoading
@@ -1063,6 +1307,7 @@ export default function AiAnalyst({ data, graphEnabled, focusNode, open, onClose
                     FEEDS: {(data.earthquakes?.length || 0) + (data.news?.length || 0) + (data.gdelt?.length || 0)} ITEMS
                   </span>
                 </div>
+               </div>
               </div>
             </motion.div>
           </>

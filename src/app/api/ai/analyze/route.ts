@@ -17,6 +17,8 @@ import {
 } from '@/lib/ai-engine';
 import { fetchLinkedPages, wantsWebSearch } from '@/lib/webContext';
 import { currentLogin } from '@/lib/dingirSessionServer';
+import { validId } from '@/lib/chat-store';
+import { addFact, forgetFacts, parseMemoryCommand, recallMemory } from '@/lib/chat-memory';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,6 +75,10 @@ interface AnalyzeRequestBody {
   messages?: unknown;
   /** The globe toggle in the chat header. */
   webSearch?: boolean;
+  /** Answer as a stream of JSON lines instead of one JSON body. */
+  stream?: boolean;
+  /** The open conversation, left out of the memory excerpts because it is already in `messages`. */
+  chatId?: string;
 }
 
 const MAX_TURNS = 40;
@@ -116,7 +122,7 @@ interface ErrorResponse {
 
 export async function POST(
   request: NextRequest
-): Promise<NextResponse<AnalyzeResponse | ErrorResponse>> {
+): Promise<NextResponse> {
   // AiAnalyst.tsx, the only caller, is itself mounted only behind
   // dingirLogin in page.tsx -- but a hidden UI element does not stop a
   // direct POST to this route, and until this fix nothing here did either.
@@ -129,7 +135,8 @@ export async function POST(
   // actually mining the original plan's Phase 5 checklist item ("confirm
   // the panel is unreachable signed out") instead of assuming a hidden
   // panel implies a protected backend.
-  if (!(await currentLogin())) return new NextResponse(null, { status: 404 });
+  const login = await currentLogin();
+  if (!login) return new NextResponse(null, { status: 404 });
 
   // Extract client IP
   const ip =
@@ -202,55 +209,85 @@ export async function POST(
     const query = body.query.trim();
     const pages = await fetchLinkedPages(query);
     const searched = Boolean(provider.supportsWebSearch && (body.webSearch === true || wantsWebSearch(query)));
-    const analysis = await analyzeIntelligence(provider, body.context, query, {
-      history: sanitizeHistory(body.messages),
-      webSearch: searched,
-      pages,
-    });
+    // Memory: an explicit "merk dir …" / "vergiss …" changes the store before the model answers,
+    // and the model is told what happened so its reply matches the record.
+    let memory = '';
+    try {
+      const cmd = parseMemoryCommand(query);
+      let note = '';
+      if (cmd?.kind === 'remember') {
+        await addFact(cmd.text, login);
+        note = `The operator just asked you to remember: "${cmd.text}". It is stored now and the whole team will see it. Confirm in one short sentence.`;
+      } else if (cmd?.kind === 'forget') {
+        const n = await forgetFacts(cmd.text);
+        note = n ? `Removed ${n} stored fact(s) matching "${cmd.text}". Confirm briefly.` : `No stored fact matched "${cmd.text}". Say so.`;
+      }
+      memory = (await recallMemory(query, body.chatId && validId(body.chatId) ? body.chatId : undefined)) + (note ? `\n\n${note}` : '');
+    } catch (e) {
+      console.warn('[DINGIR] memory unavailable:', e instanceof Error ? e.message : e);
+    }
+    const options = { history: sanitizeHistory(body.messages), webSearch: searched, pages, memory };
+    const web = { searched, pages: pages.length };
+
+    if (body.stream === true) {
+      // One JSON object per line: {"t": "…"} for text, then {"done": true, …} or {"error": …}.
+      // no-transform keeps Next's gzip layer from buffering the tokens until the end.
+      const enc = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (o: unknown) => controller.enqueue(enc.encode(`${JSON.stringify(o)}\n`));
+          try {
+            await analyzeIntelligence(provider, body.context, query, { ...options, onToken: t => send({ t }) });
+            send({ done: true, model: `${provider.label} / ${provider.model}`, timestamp: new Date().toISOString(), web });
+          } catch (err) {
+            const m = mapProviderError(err, provider.label);
+            send({ error: m.error, code: m.code });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+      return new NextResponse(stream, {
+        headers: {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    }
+
+    const analysis = await analyzeIntelligence(provider, body.context, query, options);
     return NextResponse.json(
       {
         analysis,
         model: `${provider.label} / ${provider.model}`,
         timestamp: new Date().toISOString(),
-        web: { searched, pages: pages.length },
+        web,
       },
       { headers: { 'X-RateLimit-Remaining': String(rateCheck.remaining) } }
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown provider error';
-
-    // The provider's own status code is carried in the message by design (see
-    // ai-engine), so the operator is told which model failed and how, rather
-    // than a generic "analysis failed" that could mean anything.
-    if (/\b401\b|API_KEY_INVALID|API key not valid|Unauthorized/i.test(message)) {
-      return NextResponse.json(
-        { error: `${provider.label} rejected the API key.`, code: 'INVALID_KEY' },
-        { status: 401 }
-      );
-    }
-    if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate limit/i.test(message)) {
-      return NextResponse.json(
-        { error: `${provider.label} quota exhausted. Try again later or use your own key.`, code: 'QUOTA_EXHAUSTED' },
-        { status: 429 }
-      );
-    }
-    if (/timed out|TimeoutError|aborted/i.test(message)) {
-      return NextResponse.json(
-        { error: `${provider.label} did not respond within 120s.`, code: 'TIMEOUT' },
-        { status: 504 }
-      );
-    }
-    if (/SAFETY/i.test(message)) {
-      return NextResponse.json(
-        { error: `${provider.label} blocked the response. Try rephrasing.`, code: 'SAFETY_BLOCKED' },
-        { status: 422 }
-      );
-    }
-
-    console.error('[DINGIR] analysis error:', message);
-    return NextResponse.json(
-      { error: `Analysis failed via ${provider.label}: ${message.slice(0, 200)}`, code: 'ANALYSIS_FAILED' },
-      { status: 500 }
-    );
+    const m = mapProviderError(err, provider.label);
+    return NextResponse.json({ error: m.error, code: m.code }, { status: m.status });
   }
+}
+
+/** The provider's own status code is carried in the message by design (see ai-engine), so the
+ *  operator is told which model failed and how, not a generic "analysis failed". */
+function mapProviderError(err: unknown, label: string): { status: number; error: string; code: string } {
+  const message = err instanceof Error ? err.message : 'Unknown provider error';
+  if (/\b401\b|API_KEY_INVALID|API key not valid|Unauthorized/i.test(message)) {
+    return { status: 401, error: `${label} rejected the API key.`, code: 'INVALID_KEY' };
+  }
+  if (/\b429\b|RESOURCE_EXHAUSTED|quota|rate limit/i.test(message)) {
+    return { status: 429, error: `${label} quota exhausted. Try again later or use your own key.`, code: 'QUOTA_EXHAUSTED' };
+  }
+  if (/timed out|TimeoutError|aborted/i.test(message)) {
+    return { status: 504, error: `${label} did not respond within 120s.`, code: 'TIMEOUT' };
+  }
+  if (/SAFETY/i.test(message)) {
+    return { status: 422, error: `${label} blocked the response. Try rephrasing.`, code: 'SAFETY_BLOCKED' };
+  }
+  console.error('[DINGIR] analysis error:', message);
+  return { status: 500, error: `Analysis failed via ${label}: ${message.slice(0, 200)}`, code: 'ANALYSIS_FAILED' };
 }

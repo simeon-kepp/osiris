@@ -118,6 +118,8 @@ export interface IntelligenceContext {
 // makes the classification decorative. The persona below is bound to the same
 // epistemic discipline the graph is.
 const SYSTEM_PROMPT = `## WHO YOU ARE IN THIS CHAT
+Your name is DINGIR. You were built by RFI-IRFOS (rfi-irfos.com), the institute behind the DINGIR world model. If asked who you are, who made you or what you run on: say you are DINGIR, built by RFI-IRFOS. Say "built", never claim RFI-IRFOS trained the language model. The language model underneath is swappable and picked in the chat settings; name it only if asked which model is answering, never present it as your maker.
+
 This chat is the operator's only way to talk to DINGIR. It is a conversation first: talk like a sharp colleague who happens to sit on top of a queryable data warehouse of live feeds (earthquakes, news/OSINT, threats, cyber alerts, markets) and the evidence graph. The operator may be a founder, an investor or an analyst, so be useful in the first sentence.
 
 You can do three things, and the question decides which:
@@ -341,6 +343,18 @@ export interface LlmProvider {
   /** Only OpenRouter has a web-search plugin today. NIM and Gemini do not. */
   supportsWebSearch?: boolean;
   complete(system: string, user: string, options?: CompleteOptions): Promise<string>;
+  /** Same call, but every piece of text is handed to `onToken` as the model writes it. */
+  stream?(system: string, user: string, options: CompleteOptions | undefined, onToken: (text: string) => void): Promise<string>;
+}
+
+/** Streams when the provider can, otherwise delivers the whole answer as one piece. */
+export async function completeStreaming(
+  p: LlmProvider, system: string, user: string, options: CompleteOptions | undefined, onToken: (text: string) => void,
+): Promise<string> {
+  if (p.stream) return p.stream(system, user, options, onToken);
+  const text = await p.complete(system, user, options);
+  onToken(text);
+  return text;
 }
 
 const NIM_BASE = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
@@ -389,50 +403,83 @@ function openAiCompatible(
   extraBody: Record<string, unknown> = { chat_template_kwargs: { enable_thinking: false } },
   webCapable = false
 ): LlmProvider {
+  const post = (stream: boolean, system: string, user: string, options: CompleteOptions) => {
+    // PROBED 2026-11-03 on google/gemini-2.5-flash: 3 results, ~2s, ~$0.008 a call,
+    // sources come back as inline markdown links.
+    const web = webCapable && options.webSearch ? { plugins: [{ id: 'web', max_results: 4 }] } : {};
+    return fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: system },
+          ...(options.history ?? []),
+          { role: 'user', content: user },
+        ],
+        temperature: 0.2,     // an analyst, not a writer
+        max_tokens: options.maxTokens ?? 2048,
+        stream,
+        // Lightning supports the OpenAI-compatible template switch. Without
+        // this, its default thinking trace consumes the same generation
+        // budget as the visible answer and can truncate a simple response.
+        ...extraBody,
+        ...web,
+      }),
+      // Generous: a 70B on a free tier is not fast, and failing at 30s would
+      // look like a broken integration rather than a slow one.
+      signal: AbortSignal.timeout(options.maxTokens && options.maxTokens < 1000 ? 45_000 : 120_000),
+    });
+  };
+  const fail = async (res: Response) => {
+    const detail = await res.text().catch(() => '');
+    return new Error(`${label} ${res.status}: ${detail.slice(0, 300)}`);
+  };
   return {
     label,
     model,
     supportsWebSearch: webCapable,
     async complete(system, user, options = {}) {
-      // PROBED 2026-11-03 on google/gemini-2.5-flash: 3 results, ~2s, ~$0.008 a call,
-      // sources come back as inline markdown links.
-      const web = webCapable && options.webSearch ? { plugins: [{ id: 'web', max_results: 4 }] } : {};
-      const res = await fetch(`${base}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: system },
-            ...(options.history ?? []),
-            { role: 'user', content: user },
-          ],
-          temperature: 0.2,     // an analyst, not a writer
-          max_tokens: options.maxTokens ?? 2048,
-          stream: false,
-          // Lightning supports the OpenAI-compatible template switch. Without
-          // this, its default thinking trace consumes the same generation
-          // budget as the visible answer and can truncate a simple response.
-          ...extraBody,
-          ...web,
-        }),
-        // Generous: a 70B on a free tier is not fast, and failing at 30s would
-        // look like a broken integration rather than a slow one.
-        signal: AbortSignal.timeout(options.maxTokens && options.maxTokens < 1000 ? 45_000 : 120_000),
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new Error(`${label} ${res.status}: ${detail.slice(0, 300)}`);
-      }
+      const res = await post(false, system, user, options);
+      if (!res.ok) throw await fail(res);
       const body = await res.json();
       const text = body?.choices?.[0]?.message?.content;
       if (typeof text !== 'string' || !text.trim()) {
         throw new Error(`${label} returned no content`);
       }
       return text;
+    },
+    async stream(system, user, options = {}, onToken) {
+      const res = await post(true, system, user, options);
+      if (!res.ok) throw await fail(res);
+      if (!res.body) throw new Error(`${label} returned no stream`);
+      // Server-sent events: `data: {json}` lines, a blank line between events, `data: [DONE]` at the end.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let full = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+          try {
+            const piece = JSON.parse(payload)?.choices?.[0]?.delta?.content;
+            if (typeof piece === 'string' && piece) { full += piece; onToken(piece); }
+          } catch { /* keep-alive or partial frame */ }
+        }
+      }
+      if (!full.trim()) throw new Error(`${label} returned no content`);
+      return full;
     },
   };
 }
@@ -498,6 +545,58 @@ function envKeys(prefix: string): string[] {
  * sync with the key: an `nvapi-` key is a NIM key, anything else is treated as
  * Gemini. Getting this wrong is loud (401 naming the provider), not silent.
  */
+/** Free OpenRouter models, tried after the paid pick fails. The list moves: ids were
+ *  read from /models on 2026-11-07, and a retired id just fails over to the next one. */
+const OPENROUTER_FREE_FALLBACKS = ['nvidia/nemotron-3.5-lightning:free', 'google/gemma-4-31b-it:free'];
+
+/** Tries each provider in order and keeps the first answer. The chat used to die whenever the
+ *  one chosen model failed (empty credit, rate limit, outage). The label switches to the model
+ *  that actually answered, marked as a fallback, and the route reads it after the call. */
+function withFallback(chain: LlmProvider[]): LlmProvider {
+  if (chain.length === 1) return chain[0];
+  const self: LlmProvider = {
+    label: chain[0].label,
+    model: chain[0].model,
+    supportsWebSearch: chain[0].supportsWebSearch,
+    async complete(system, user, options = {}) {
+      let lastErr: unknown;
+      for (let i = 0; i < chain.length; i++) {
+        const p = chain[i];
+        try {
+          const text = await p.complete(system, user, p.supportsWebSearch ? options : { ...options, webSearch: false });
+          self.label = i === 0 ? p.label : `${p.label} (fallback)`;
+          self.model = p.model;
+          return text;
+        } catch (e) {
+          lastErr = e;
+          console.warn(`[ai] ${p.label} / ${p.model} failed, trying next:`, e instanceof Error ? e.message.slice(0, 160) : e);
+        }
+      }
+      throw lastErr;
+    },
+    async stream(system, user, options = {}, onToken) {
+      let lastErr: unknown;
+      for (let i = 0; i < chain.length; i++) {
+        const p = chain[i];
+        let emitted = false;
+        try {
+          const text = await completeStreaming(p, system, user, p.supportsWebSearch ? options : { ...options, webSearch: false }, t => { emitted = true; onToken(t); });
+          self.label = i === 0 ? p.label : `${p.label} (fallback)`;
+          self.model = p.model;
+          return text;
+        } catch (e) {
+          lastErr = e;
+          // Text already on the operator's screen cannot be taken back, so a mid-answer failure ends here.
+          if (emitted) throw e;
+          console.warn(`[ai] ${p.label} / ${p.model} failed, trying next:`, e instanceof Error ? e.message.slice(0, 160) : e);
+        }
+      }
+      throw lastErr;
+    },
+  };
+  return self;
+}
+
 export function resolveProvider(userKey?: string, modelChoice?: string): LlmProvider | null {
   const k = userKey?.trim();
   const choice = LLM_MODELS.find(m => m.id === modelChoice?.trim());
@@ -520,7 +619,19 @@ export function resolveProvider(userKey?: string, modelChoice?: string): LlmProv
     const reasoning = picked
       ? picked.reasoning
       : modelId.includes('gpt-oss') ? { effort: 'low' } : modelId.startsWith('google/') ? { enabled: false } : undefined;
-    return openAiCompatible(rotateApiKey(orKeys), OPENROUTER_BASE, modelId, 'OpenRouter', reasoning ? { reasoning } : {}, true);
+    const chain: LlmProvider[] = [
+      openAiCompatible(rotateApiKey(orKeys), OPENROUTER_BASE, modelId, 'OpenRouter', reasoning ? { reasoning } : {}, true),
+    ];
+    if (modelId !== OPENROUTER_MODEL) {
+      chain.push(openAiCompatible(rotateApiKey(orKeys), OPENROUTER_BASE, OPENROUTER_MODEL, 'OpenRouter', { reasoning: { enabled: false } }, true));
+    }
+    for (const free of OPENROUTER_FREE_FALLBACKS) {
+      chain.push(openAiCompatible(rotateApiKey(orKeys), OPENROUTER_BASE, free, 'OpenRouter', {}, false));
+    }
+    if (nimKeys.length) chain.push(openAiCompatible(rotateApiKey(nimKeys), NIM_BASE, NIM_MODEL, 'NVIDIA NIM'));
+    const gemKeys = envKeys('GEMINI_API_KEY');
+    if (gemKeys.length) chain.push(gemini(rotateApiKey(gemKeys)));
+    return withFallback(chain);
   }
   const nim = nimKeys;
   if (nim.length) return openAiCompatible(rotateApiKey(nim), NIM_BASE, NIM_MODEL, 'NVIDIA NIM');
@@ -544,6 +655,10 @@ export interface AnalyzeOptions {
   history?: ChatTurn[];
   webSearch?: boolean;
   pages?: FetchedPage[];
+  /** The MEMORY section from chat-memory.ts. */
+  memory?: string;
+  /** When set, the answer is streamed to this callback while it is written. */
+  onToken?: (text: string) => void;
 }
 
 // The data sits in the system message and the operator's words are the last
@@ -565,14 +680,13 @@ export async function analyzeIntelligence(
 
 ## CURRENT OPERATIONAL DATA
 ${serializeContext(context)}
-${pages ? `\n## FETCHED PAGES (WEB, fetched this turn from links the operator sent)\n${pages}\n` : ''}
+${options.memory ? `\n${options.memory}\n` : ''}${pages ? `\n## FETCHED PAGES (WEB, fetched this turn from links the operator sent)\n${pages}\n` : ''}
 ## WEB SEARCH THIS TURN
 ${webSearch ? 'ON. The search results attached to this turn are your WEB RESULTS.' : 'OFF.'}`;
-  return provider.complete(system, userQuery, {
-    maxTokens: 2000,
-    history: options.history,
-    webSearch,
-  });
+  const callOptions = { maxTokens: 2000, history: options.history, webSearch };
+  return options.onToken
+    ? completeStreaming(provider, system, userQuery, callOptions, options.onToken)
+    : provider.complete(system, userQuery, callOptions);
 }
 
 export async function generateBriefing(
