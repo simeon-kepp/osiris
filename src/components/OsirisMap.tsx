@@ -327,14 +327,14 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
 
       // CCTV — outer glow ring (black/white depending on theme)
       map.addLayer({ id: 'cctv-glow', type: 'circle', source: 'cctv', paint: {
-        'circle-radius': ['interpolate',['linear'],['zoom'], 1,5, 5,8, 10,14, 14,20],
-        'circle-color': '#000000', 'circle-opacity': 0.35, 'circle-blur': 1,
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,3, 5,5, 10,9, 14,13],
+        'circle-color': '#000000', 'circle-opacity': 0.2, 'circle-blur': 1,
       }});
       // CCTV — main dot
       map.addLayer({ id: 'cctv-dots', type: 'circle', source: 'cctv', paint: {
-        'circle-radius': ['interpolate',['linear'],['zoom'], 1,3, 5,5, 10,8, 14,12],
-        'circle-color': cameraColor, 'circle-opacity': 0.9,
-        'circle-stroke-width': 2.5, 'circle-stroke-color': '#000000', 'circle-stroke-opacity': 0.9,
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,2, 5,3, 10,5, 14,8],
+        'circle-color': cameraColor, 'circle-opacity': 0.75,
+        'circle-stroke-width': 1, 'circle-stroke-color': '#000000', 'circle-stroke-opacity': 0.35,
       }});
       // CCTV — labels at zoom 10+
       map.addLayer({ id: 'cctv-label', type: 'symbol', source: 'cctv', minzoom: 10, layout: {
@@ -757,7 +757,19 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     // ── POPUP HELPER ──
     const popup = (coords: any, html: string) => {
       popupRef.current?.remove();
-      popupRef.current = new maplibregl.Popup({ closeButton: true, maxWidth: '560px', offset: 14 }).setLngLat(coords).setHTML(html).addTo(map);
+      const pop = new maplibregl.Popup({ closeButton: true, maxWidth: '560px', offset: 14 }).setLngLat(coords).setHTML(html).addTo(map);
+      popupRef.current = pop;
+      // The popup is zoomed 1.3x in CSS, which MapLibre does not see when it picks
+      // an anchor, so a tall one can start above the screen. Nudge the map until
+      // the whole card, header included, is inside the canvas.
+      requestAnimationFrame(() => {
+        if (popupRef.current !== pop) return;
+        const r = pop.getElement().getBoundingClientRect();
+        const c = map.getContainer().getBoundingClientRect();
+        const dy = r.top < c.top + 56 ? r.top - c.top - 56 : r.bottom > c.bottom - 24 ? r.bottom - c.bottom + 24 : 0;
+        const dx = r.right > c.right - 70 ? r.right - c.right + 70 : r.left < c.left + 70 ? r.left - c.left - 70 : 0;
+        if (dx || dy) map.panBy([dx, dy], { duration: 250 });
+      });
     };
     const pStyle = `background:rgba(12,14,26,0.95);backdrop-filter:blur(16px);border-radius:10px;padding:16px;font-family:var(--font-body);font-variant-numeric:tabular-nums;`;
     const linkStyle = `display:inline-block;margin-top:8px;padding:5px 12px;font-size:10px;letter-spacing:0.12em;text-decoration:none;border-radius:5px;font-family:var(--font-body);font-variant-numeric:tabular-nums;`;

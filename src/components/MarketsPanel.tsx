@@ -271,9 +271,7 @@ export default function MarketsPanel({ data, spaceWeather, onClose }: MarketsPan
           key={q.symbol || q.name}
           quote={q}
           active={selected?.symbol === q.symbol}
-          onSelect={() => setSelected(
-            selected?.symbol === q.symbol ? null : { symbol: q.symbol, name: q.name },
-          )}
+          onSelect={() => setSelected({ symbol: q.symbol, name: q.name })}
         />
       ))}
 

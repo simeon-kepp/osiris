@@ -335,7 +335,7 @@ html:has(.docs-root) body {
 /* Popup bodies are written with small fixed pixel sizes (9-12px). Scaling the whole card keeps their
    proportions and gives every popup, from vessels to fires, the same roomier size. */
 @media (min-width: 768px) {
-  .maplibregl-popup-content > div { zoom: 1.3; }
+  .maplibregl-popup-content > div { zoom: 1.3; max-height: calc((100vh - 150px) / 1.3); overflow-y: auto; }
   .maplibregl-popup-close-button { font-size: 20px !important; padding: 6px 10px !important; }
 }
 .maplibregl-ctrl-attrib { display: none !important; }
