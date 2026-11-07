@@ -19,7 +19,7 @@ export const FORECAST_DOMAINS: ForecastDomain[] = [
   { id: 'seismic', label: 'SEISMIC', question: 'Will M5+ aftershocks follow the big quakes?', status: 'LIVE_SCORED', evidence: 'USGS ComCat · append-only scoring', next: 'Running. Issued every 6 hours and scored against USGS.' },
   { id: 'wildfire', label: 'WILDFIRE', question: 'Will a burning area keep burning?', status: 'LIVE_SCORED', evidence: 'NASA FIRMS MODIS 7-day feed · base rate from comparable fires', next: 'Scored 24–72 h after each forecast; first scores about 75 h after the first batch.' },
   { id: 'markets', label: 'MARKETS', question: 'Will price swings stay high?', status: 'LIVE_SCORED', evidence: 'Yahoo daily closes · pooled base rate over 24 instruments', next: 'Scored after 5 more trading days; first scores about a week after the first batch.' },
-  { id: 'weather', label: 'WEATHER', question: 'Will weather disrupt operations?', status: 'RESEARCH', evidence: 'ASOS / live weather · causal research lane', next: 'Needs a cause-and-effect model with an outcome we can check, for example flight delays.' },
+  { id: 'weather', label: 'WEATHER', question: 'Will gale-force gusts hit a city?', status: 'LIVE_SCORED', evidence: 'Open-Meteo hourly gusts · 2-year base rate over 16 cities', next: 'Scored 48 h after each forecast; first scores about 2 days after the first batch.' },
   { id: 'space', label: 'SPACE WEATHER', question: 'Will a geomagnetic storm hit?', status: 'LIVE_SCORED', evidence: 'GFZ Potsdam Kp index · 3-year base rate by recent activity', next: 'Scored 72 h after each forecast; first scores about 3 days after the first one.' },
 ];
 

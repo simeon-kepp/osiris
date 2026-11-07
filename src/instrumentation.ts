@@ -6,8 +6,11 @@ export async function register() {
   const { runCycle } = await import('@/lib/fire-forecast');
   const market = await import('@/lib/market-forecast');
   const space = await import('@/lib/space-forecast');
+  const weather = await import('@/lib/weather-forecast');
   setTimeout(() => { void runCycle(); }, 45_000);
   setTimeout(() => { void market.runCycle(); }, 90_000);
+  setTimeout(() => { void weather.runCycle(); }, 180_000);
+  setInterval(() => { void weather.runCycle(); }, 20 * 60_000).unref();
   setTimeout(() => { void space.runCycle(); }, 135_000);
   setInterval(() => { void space.runCycle(); }, 20 * 60_000).unref();
   setInterval(() => { void runCycle(); }, 10 * 60_000).unref();
