@@ -6,8 +6,7 @@ import dynamic from 'next/dynamic';
 import {
   X, Maximize2, Minimize2, Loader2, AlertTriangle,
   Plane, Ship, Building2, User, Globe, Newspaper, ShieldAlert,
-  RefreshCw, Network, Wifi, Search
-} from 'lucide-react';
+  RefreshCw, Network, Wifi, Search, ChevronDown } from 'lucide-react';
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
 
@@ -83,11 +82,20 @@ function EntityGraphPanel({ entity, onClose }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const graphRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Push nodes apart and let the camera fit them: the default forces packed a country and its 14 neighbours into a corner.
+  useEffect(() => {
+    const g = graphRef.current;
+    if (!g) return;
+    g.d3Force('charge')?.strength(-380);
+    g.d3Force('link')?.distance(95);
+    g.d3ReheatSimulation?.();
+  }, [graphData.nodes.length]);
   /** What the graph is built around: the map click that opened the panel, or whatever was typed here. */
   const [target, setTarget] = useState(entity);
   useEffect(() => { setTarget(entity); }, [entity]);
   const [draftType, setDraftType] = useState<string>('country');
   const [draftId, setDraftId] = useState('');
+  const [typeOpen, setTypeOpen] = useState(false);
   // Live starting points for the empty state; the static list below is only the fallback.
   const [groups, setGroups] = useState<{ title: string; items: { type: string; id: string; note: string }[] }[]>([]);
   useEffect(() => {
@@ -307,12 +315,23 @@ function EntityGraphPanel({ entity, onClose }: Props) {
           className="px-6 py-2 border-b border-[var(--border-primary)] flex items-center gap-2 bg-black/20 relative z-20"
         >
           {(() => { const t = target?.type ?? draftType; const I = TYPE_ICONS[t] || Network; return <I className="w-4 h-4 shrink-0" style={{ color: TYPE_COLORS[t] || 'var(--gold-primary)' }} />; })()}
-          <select
-            value={draftType} onChange={e => setDraftType(e.target.value)}
-            className="bg-black/40 border border-[var(--border-primary)] rounded px-1.5 py-1 text-[11px] font-mono text-white/90 uppercase outline-none focus:border-[var(--gold-primary)]/60"
-          >
-            {TARGET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <div className="relative shrink-0">
+            <button type="button" onClick={() => setTypeOpen(o => !o)}
+              className="flex items-center gap-1 bg-black/40 border border-[var(--border-primary)] rounded px-2 py-1 text-[11px] font-mono text-white/90 uppercase hover:border-[var(--gold-primary)]/60">
+              {draftType} <ChevronDown className="w-3 h-3 text-[var(--gold-primary)]" />
+            </button>
+            {typeOpen && (<>
+              <div className="fixed inset-0 z-30" onClick={() => setTypeOpen(false)} />
+              {/* Opens flush under the bar, not in the middle of the panel like the native list did. */}
+              <div className="absolute left-0 top-full z-40 mt-2 w-40 overflow-hidden rounded border border-[var(--gold-primary)]/40 bg-[#0a0d14] shadow-lg">
+                {TARGET_TYPES.map(t => { const I = TYPE_ICONS[t] || Network; return (
+                  <button key={t} type="button" onClick={() => { setDraftType(t); setTypeOpen(false); }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono uppercase hover:bg-[var(--gold-primary)]/15 ${t === draftType ? 'text-[var(--gold-primary)]' : 'text-white/90'}`}>
+                    <I className="w-3.5 h-3.5" style={{ color: TYPE_COLORS[t] }} />{t}
+                  </button>); })}
+              </div>
+            </>)}
+          </div>
           <input
             value={draftId} onChange={e => setDraftId(e.target.value)}
             placeholder={target ? `${target.label || target.id} — type another target` : 'Country, IP, callsign, vessel…'}
@@ -345,7 +364,8 @@ function EntityGraphPanel({ entity, onClose }: Props) {
               onNodeHover={(node: any) => { if (containerRef.current) containerRef.current.style.cursor = node ? 'pointer' : 'default'; }}
               width={size.w}
               height={size.h}
-              d3AlphaDecay={0.05} d3VelocityDecay={0.4} cooldownTicks={100}
+              d3AlphaDecay={0.03} d3VelocityDecay={0.35} cooldownTicks={220}
+              onEngineStop={() => graphRef.current?.zoomToFit(500, 60)}
               linkDirectionalParticles={1} linkDirectionalParticleWidth={1.5}
               linkDirectionalParticleSpeed={0.003}
               linkDirectionalParticleColor={() => 'rgba(212,175,55,0.6)'}
@@ -357,19 +377,20 @@ function EntityGraphPanel({ entity, onClose }: Props) {
               <p className="text-[12px] font-mono text-white/80 leading-relaxed max-w-[340px]">
                 Pick a target above, or start from what is happening right now. Click any node afterwards to open it and pull in what is linked to it.
               </p>
-              {(groups.length ? groups : [{ title: 'Start from', items: SUGGESTIONS.map(x => ({ ...x, note: '' })) }]).map(g => (
-                <div key={g.title} className="w-full">
-                  <div className="mb-1.5 text-[9px] font-mono uppercase tracking-widest text-white/70">{g.title}</div>
+              {(() => {
+                // Few chips on purpose: the two hottest conflict zones and the two most attacked countries.
+                const live = groups.length ? [...(groups[0]?.items ?? []).slice(0, 3), ...(groups[1]?.items ?? []).slice(0, 2)] : SUGGESTIONS.slice(0, 4).map(x => ({ ...x, note: '' }));
+                return (
                   <div className="flex flex-wrap justify-center gap-2">
-                    {g.items.map(sg => (
+                    {live.map(sg => (
                       <button key={`${sg.type}:${sg.id}`} onClick={() => { setDraftType(sg.type); setDraftId(''); lockTarget(sg.type, sg.id); }}
                         className="rounded-full border border-[var(--gold-primary)]/40 bg-[var(--gold-primary)]/10 px-3 py-1 text-[11px] font-mono text-[var(--gold-primary)] hover:bg-[var(--gold-primary)]/20">
                         {sg.id}{sg.note ? <span className="ml-1.5 text-white/60">{sg.note}</span> : null}
                       </button>
                     ))}
                   </div>
-                </div>
-              ))}
+                );
+              })()}
             </div>
           )}
         </div>
