@@ -257,12 +257,12 @@ export default function ArcGISPanel({
                         {layer.visible ? (
                           <Eye className="w-3 h-3 text-white/70" />
                         ) : (
-                          <EyeOff className="w-3 h-3 text-white/30" />
+                          <EyeOff className="w-3 h-3 text-white/70" />
                         )}
                       </button>
 
                       {/* Layer name */}
-                      <span className={`text-[10px] font-mono font-medium truncate flex-1 ${layer.visible ? 'text-white' : 'text-white/40'}`}>
+                      <span className={`text-[10px] font-mono font-medium truncate flex-1 ${layer.visible ? 'text-white' : 'text-white/70'}`}>
                         {layer.title}
                       </span>
 
@@ -279,7 +279,7 @@ export default function ArcGISPanel({
                       {/* Expand / collapse for settings */}
                       <button
                         onClick={() => setExpandedLayerId(isExpanded ? null : layer.id)}
-                        className="flex-shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors text-white/40 hover:text-white/70"
+                        className="flex-shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors text-white/70 hover:text-white/70"
                         title="Layer settings"
                       >
                         <SlidersHorizontal className="w-3 h-3" />

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { RegionId } from '@/lib/regions';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, Telescope, MessageSquare, LogIn, LogOut, Info } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Brain, Radio, Telescope, MessageSquare, LogIn, LogOut } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -32,7 +32,6 @@ const ReasoningFeed = dynamic(() => import('@/components/ReasoningFeed'));
 const PredictionPanel = dynamic(() => import('@/components/PredictionPanel'));
 const AiAnalyst = dynamic(() => import('@/components/AiAnalyst'));
 const EvidencePanel = dynamic(() => import('@/components/EvidencePanel'));
-const CapabilitiesPanel = dynamic(() => import('@/components/CapabilitiesPanel'));
 import { useLocale } from '@/lib/LocaleProvider';
 import SidePanelFrame from '@/components/layout/SidePanelFrame';
 
@@ -184,7 +183,6 @@ export default function Dashboard() {
   // Static info modal ("What the model can be used for") — no gate, no data
   // fetch, so it does not participate in the mutual-exclusion closing pattern
   // the live panels use.
-  const [showCapabilities, setShowCapabilities] = useState(false);
   // ── the right-hand rail ────────────────────────────────────────────────────
   // Rail tools (forecast, feed) stack outward from the right edge; the whitebox
   // panel opens beside the stack rather than on top of it. Each tool REPORTS its
@@ -198,7 +196,6 @@ export default function Dashboard() {
   // must reserve that space, otherwise its solid surface sits underneath the
   // controls and makes the rail look broken.
   const toolRailWidth = 56;
-  const railWidth = predWidth + feedWidth + toolRailWidth;
   // Set when a feed entry is clicked, so the reasoning panel opens on that node
   // instead of the default. The feed says what DINGIR noticed; the panel is
   // where you go to check whether it is right.
@@ -310,6 +307,63 @@ export default function Dashboard() {
     return () => navigator.geolocation.clearWatch(id);
   }, [navSession]);
   const [showRemote, setShowRemote] = useState(false);
+
+  // ── right-hand dock policy ─────────────────────────────────────────────────
+  // Two rules keep the right side readable. (1) At most two slide-out tools
+  // (forecast, feed, chat, whitebox) are open at once; opening a third closes
+  // the one open longest. (2) Slide-outs and the popover tools (search, intel,
+  // markets, alerts, graph, remote, directions) never share the edge; the one
+  // opened last wins. Both are enforced here, after the fact, so every existing
+  // open/close handler keeps working unchanged.
+  const [viewW, setViewW] = useState(1440);
+  useEffect(() => {
+    const onResize = () => setViewW(window.innerWidth);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const analystOpen = showAnalyst && Boolean(dingirLogin);
+  // Chat is a floating card at md+ (min(560px, 42vw)); below md it is a sheet.
+  const analystWidth = analystOpen && viewW >= 768 ? Math.min(560, viewW * 0.42) : 0;
+  // Everything the whitebox has to clear: forecast, feed, chat and the icon rail.
+  const railWidth = predWidth + feedWidth + analystWidth + toolRailWidth;
+
+  const slideOrderRef = useRef<string[]>([]);
+  useEffect(() => {
+    const open: Record<string, boolean> = {
+      predictions: showPredictions, feed: showReasoningFeed, analyst: analystOpen, reasoning: showReasoningPanel,
+    };
+    const close: Record<string, () => void> = {
+      predictions: () => setShowPredictions(false),
+      feed: () => setShowReasoningFeed(false),
+      analyst: () => setShowAnalyst(false),
+      reasoning: () => { setShowReasoningPanel(false); setReasoningFocus(undefined); },
+    };
+    const order = slideOrderRef.current.filter(k => open[k]);
+    for (const k of Object.keys(open)) if (open[k] && !order.includes(k)) order.push(k);
+    while (order.length > 2) close[order.shift()!]();
+    slideOrderRef.current = order;
+  }, [showPredictions, showReasoningFeed, analystOpen, showReasoningPanel]);
+
+  const popoverOpen = showDesktopSearch || showIntel || showMarkets || showAlerts || showEntityGraph || showRemote || showDirections;
+  const slideOpen = showPredictions || showReasoningFeed || analystOpen || showReasoningPanel;
+  const prevDockRef = useRef({ popoverOpen: false, slideOpen: false });
+  useEffect(() => {
+    const prev = prevDockRef.current;
+    if (popoverOpen && slideOpen) {
+      if (!prev.popoverOpen) {
+        // A popover just opened over open slide-outs.
+        setShowPredictions(false); setShowReasoningFeed(false); setShowAnalyst(false);
+        setShowReasoningPanel(false); setReasoningFocus(undefined);
+      } else if (!prev.slideOpen) {
+        // A slide-out just opened over open popovers. The route itself stays on
+        // the map; only the planner bar steps aside.
+        setShowDesktopSearch(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false);
+        setShowEntityGraph(false); setShowRemote(false); setShowDirections(false);
+      }
+    }
+    prevDockRef.current = { popoverOpen, slideOpen };
+  }, [popoverOpen, slideOpen]);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [arcgisRestoring, setArcgisRestoring] = useState(false);
   // Read inside the viewport effect. Depending on arcgisLayers directly would
@@ -600,6 +654,11 @@ export default function Dashboard() {
       if (e.key === 'f' && !e.ctrlKey) {
         if (document.fullscreenElement) document.exitFullscreen();
         else document.documentElement.requestFullscreen();
+      }
+      // Region dossier without a right button: Laura's Mac has none, and
+      // ctrl+click there is easy to miss. D asks about the point under the cursor.
+      if ((e.key === 'd' || e.key === 'D') && !e.metaKey && !e.ctrlKey && !e.altKey && mouseCoordsRef.current) {
+        handleRightClick(mouseCoordsRef.current);
       }
       if (e.key === 'l') setShowLayers(p => !p);
       if (e.key === 'm') setShowMarkets(p => !p);
@@ -1308,84 +1367,84 @@ export default function Dashboard() {
           tape vacating the bottom edge is what made the room. */}
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 3.5 }}
-        className="absolute bottom-[75px] md:bottom-5 z-[200] flex flex-col gap-1 pointer-events-none"
-        style={{ left: isMobile ? '12px' : '120px', right: isMobile ? '12px' : '24px' }}
+        className={`absolute z-[200] pointer-events-none ${isMobile ? 'bottom-[75px] flex flex-col gap-1' : 'bottom-1.5 flex items-center gap-4'}`}
+        style={isMobile ? { left: '12px', right: '12px' } : { left: '12px' }}
       >
         {/* Unified Control Strip */}
         <div className="flex items-center gap-1.5 pointer-events-auto w-fit">
           {/* Projection Toggle (Globe / 2D) */}
-          <div className="flex items-center rounded-xl overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-panel)] backdrop-blur-2xl shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center rounded-lg overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-panel)] backdrop-blur-2xl shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
             <button
               onClick={() => setMapProjection('globe')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-[9px] font-mono tracking-wider transition-all duration-200 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono tracking-wider transition-all duration-200 ${
                 mapProjection === 'globe'
                   ? 'bg-[var(--cyan-primary)]/15 text-[var(--cyan-primary)]'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
               title="3D Globe"
             >
-              <Globe className="w-3.5 h-3.5" />
+              <Globe className="w-4 h-4" />
               <span className="hidden md:inline">3D</span>
             </button>
             <div className="w-px h-4 bg-[var(--border-primary)]" />
             <button
               onClick={() => setMapProjection('mercator')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-[9px] font-mono tracking-wider transition-all duration-200 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono tracking-wider transition-all duration-200 ${
                 mapProjection === 'mercator'
                   ? 'bg-[var(--gold-primary)]/15 text-[var(--gold-primary)]'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
               title="2D Map"
             >
-              <MapPinned className="w-3.5 h-3.5" />
+              <MapPinned className="w-4 h-4" />
               <span className="hidden md:inline">2D</span>
             </button>
           </div>
 
           {/* Style Toggle (Night / Satellite) */}
-          <div className="flex items-center rounded-xl overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-panel)] backdrop-blur-2xl shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center rounded-lg overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-panel)] backdrop-blur-2xl shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
             <button
               onClick={() => setMapStyle('dark')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-[9px] font-mono tracking-wider transition-all duration-200 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono tracking-wider transition-all duration-200 ${
                 mapStyle === 'dark'
                   ? 'bg-[var(--cyan-primary)]/15 text-[var(--cyan-primary)]'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
               title="Night Mode"
             >
-              <Moon className="w-3.5 h-3.5" />
+              <Moon className="w-4 h-4" />
               <span className="hidden md:inline">MAP</span>
             </button>
             <div className="w-px h-4 bg-[var(--border-primary)]" />
             <button
               onClick={() => setMapStyle('satellite')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-[9px] font-mono tracking-wider transition-all duration-200 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono tracking-wider transition-all duration-200 ${
                 mapStyle === 'satellite'
                   ? 'bg-[var(--alert-green)]/15 text-[var(--alert-green)]'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
               title="Satellite View"
             >
-              <Satellite className="w-3.5 h-3.5" />
+              <Satellite className="w-4 h-4" />
               <span className="hidden md:inline">SAT</span>
             </button>
           </div>
         </div>
 
-        {/* Scale bar and cursor readout share one line under the pills. */}
+        {/* Scale bar and cursor readout sit in the same row as the pills (stacked under them on mobile). */}
         {!isMobile && (
           <div className="flex items-center gap-5 pointer-events-auto">
             <div className="pl-0.5 shrink-0">
               <ScaleBar zoom={mapView.zoom} latitude={mapView.latitude} />
             </div>
-            <div className="flex items-center gap-5 text-[9px] font-mono tracking-widest text-[var(--text-muted)] opacity-70 min-w-0">
+            <div className="flex items-center gap-5 text-[9px] font-mono tracking-widest text-[var(--text-muted)] opacity-70 min-w-0 whitespace-nowrap">
               <div className="flex gap-2 items-center shrink-0" title="Cursor coordinates (hover over map)">
                 <span>CURSOR</span>
                 <span ref={coordsDisplayRef} className="text-[var(--gold-primary)] font-bold tabular-nums">—</span>
               </div>
               <div className="flex gap-2 items-center min-w-0" title="Reverse-geocoded location name">
                 <span className="shrink-0">LOCATION</span>
-                <span className="text-[var(--cyan-primary)] truncate">{locationLabel || 'HOVER MAP'}</span>
+                <span className="text-[var(--cyan-primary)] truncate max-w-[14vw]">{locationLabel || 'HOVER MAP'}</span>
               </div>
               <div className="flex gap-2 items-center shrink-0" title="Current zoom level">
                 <span>ZOOM</span>
@@ -1400,9 +1459,16 @@ export default function Dashboard() {
       {/* Live feedback 2026-08-17: just the logo and "DINGIR" - dropped the
           "OPEN SOURCE INTELLIGENCE" subtitle and the "REAL-TIME GLOBAL
           MONITORING · ..." line underneath it. */}
-      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, delay: 2.5 }} className={`absolute top-4 md:top-[38px] z-[200] pointer-events-none flex flex-col`} style={{ left: isMobile ? '24px' : '64px', right: '24px' }}>
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, delay: 2.5 }} className={`absolute top-4 md:top-[38px] z-[200] pointer-events-none flex flex-col`} style={{ left: isMobile ? '24px' : '12px', right: '24px' }}>
         <div className="flex items-center gap-3 w-fit">
-          <img src="/rfi-irfos-logo.png" alt="RFI-IRFOS" className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain drop-shadow-[0_0_8px_rgba(45,212,191,0.5)]" />
+          {/* Same breathing as the splash logo, ~4x slower so it stays in the background. */}
+          <motion.img src="/rfi-irfos-logo.png" alt="RFI-IRFOS"
+            animate={{
+              opacity: [0.65, 1, 0.65], scale: [0.96, 1.04, 0.96],
+              filter: ['drop-shadow(0 0 6px rgba(45,212,191,0.5))', 'drop-shadow(0 0 22px rgba(45,212,191,1)) drop-shadow(0 0 40px rgba(45,212,191,0.55))', 'drop-shadow(0 0 6px rgba(45,212,191,0.5))'],
+            }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+            className="w-8 h-8 md:w-10 md:h-10 shrink-0 object-contain" />
           <h1 className="text-lg md:text-xl font-bold tracking-[0.4em] text-white font-mono">{tr('header.title')}</h1>
         </div>
       </motion.div>
@@ -1410,27 +1476,6 @@ export default function Dashboard() {
 
       {/* ── TOP-RIGHT STATUS (desktop) ── */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 3 }} className="status-bar-desktop absolute top-4 md:top-[40px] right-6 z-[200] pointer-events-none flex items-center gap-3 text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
-
-        <span className="hidden lg:inline-flex items-center gap-1.5">
-          <ZuluClock />
-        </span>
-
-        <span className="flex items-center gap-1" title="Backend connection status">STATUS: <span className={backendStatus === 'connected' ? 'text-[var(--alert-green)]' : 'text-[var(--alert-red)]'}>{backendStatus === 'connected' ? 'LIVE' : backendStatus.toUpperCase()}</span></span>
-
-        <span className="hidden lg:inline-flex items-center gap-1" title="Number of active data layers">
-          <span className="text-[var(--cyan-primary)] font-bold">{Object.values(activeLayers).filter(Boolean).length}</span>
-          <span className="opacity-60">LAYERS</span>
-        </span>
-
-        <span className="hidden lg:inline-flex items-center gap-1" title="Tracked entities on map">
-          <ActiveEntityCount data={data} />
-          <span className="opacity-60">ENTITIES</span>
-        </span>
-
-        {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
-
-        <span className="text-[10px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.4.1</span>
-
         {/* The dashboard was English-only since it existed. This is the entire
             visible switch: everything it drives lives in LocaleProvider, so
             adding a translated surface elsewhere never needs a second toggle. */}
@@ -1438,9 +1483,11 @@ export default function Dashboard() {
           type="button"
           onClick={() => setLocale(locale === 'en' ? 'de' : 'en')}
           title={tr('lang.toggle')}
-          className="pointer-events-auto flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-bold tracking-widest hover:bg-white/10 transition-colors"
+          className="order-last ml-1 pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/15 bg-black/40 p-0.5 text-[11px] font-bold tracking-widest hover:border-white/30 transition-colors"
         >
-          {locale === 'en' ? 'DE' : 'EN'}
+          {(['de', 'en'] as const).map(l => (
+            <span key={l} className={`rounded-full px-2.5 py-1 transition-colors ${locale === l ? 'bg-[var(--cyan-primary)]/25 text-[var(--cyan-primary)]' : 'text-white/50'}`}>{l.toUpperCase()}</span>
+          ))}
         </button>
 
         {/* DINGIR access, top right. Only rendered where GitHub OAuth is actually
@@ -1452,8 +1499,8 @@ export default function Dashboard() {
               <form action="/api/auth/logout" method="post" className="flex items-center gap-1.5">
                 <span className="hidden lg:inline text-[var(--cyan-primary)] font-bold tracking-widest">{dingirLogin.toUpperCase()}</span>
                 <button type="submit" title={`Signed in as ${dingirLogin} — sign out`}
-                  className="flex items-center justify-center w-6 h-6 rounded-full hover:bg-white/10 transition-colors">
-                  <LogOut className="w-3.5 h-3.5" />
+                  className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-white/10 transition-colors">
+                  <LogOut className="w-4 h-4" />
                 </button>
               </form>
             ) : (
@@ -1474,11 +1521,11 @@ export default function Dashboard() {
 
 
       {/* ── RIGHT TOOL STRIP (desktop only — mobile uses bottom nav) ── */}
-      {!isMobile && <div className="absolute right-2 top-[72px] bottom-[64px] flex flex-col justify-center gap-1 z-[250] pointer-events-none before:content-[''] before:absolute before:-right-2 before:top-1/2 before:-translate-y-1/2 before:h-[min(520px,100%)] before:w-12 before:rounded-full before:bg-black/40 before:backdrop-blur-sm before:border before:border-white/5 before:pointer-events-none [&>*]:pointer-events-auto">
+      {!isMobile && <div className="absolute right-1 top-[72px] bottom-[44px] my-auto h-fit flex flex-col gap-1 py-2 z-[250] pointer-events-none before:content-[''] before:absolute before:-right-1 before:inset-y-0 before:w-12 before:rounded-full before:bg-black/40 before:backdrop-blur-sm before:border before:border-white/5 before:pointer-events-none [&>*]:pointer-events-auto">
         {/* Search is the primary entry point and therefore always stays first. */}
         <div className="relative group">
-          <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.search.title')}>
-            <Search className={`w-4 h-4 ${showDesktopSearch ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.search.title')}>
+            <Search className={`w-5 h-5 ${showDesktopSearch ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.search')}</span>
           <AnimatePresence>
@@ -1489,8 +1536,8 @@ export default function Dashboard() {
         </div>
         <div className="w-4 h-px bg-white/10 mx-auto" />
         <div className="relative group">
-          <button onClick={() => { setShowIntel(!showIntel); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showIntel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.osint.title')}>
-            <Radar className={`w-4 h-4 ${showIntel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowIntel(!showIntel); setShowMarkets(false); setShowAlerts(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showIntel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.osint.title')}>
+            <Radar className={`w-5 h-5 ${showIntel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.osint')}</span>
           <AnimatePresence>
@@ -1509,8 +1556,8 @@ export default function Dashboard() {
         </div>
 
         <div className="relative group">
-          <button onClick={() => { setShowMarkets(!showMarkets); setShowIntel(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showMarkets ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.markets.title')}>
-            <BarChart3 className={`w-4 h-4 ${showMarkets ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowMarkets(!showMarkets); setShowIntel(false); setShowAlerts(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showMarkets ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.markets.title')}>
+            <BarChart3 className={`w-5 h-5 ${showMarkets ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.markets')}</span>
           <AnimatePresence>
@@ -1521,8 +1568,8 @@ export default function Dashboard() {
         </div>
 
         <div className="relative group">
-          <button onClick={() => { setShowAlerts(!showAlerts); setShowIntel(false); setShowMarkets(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAlerts ? 'bg-[#FF3D3D]/20' : 'hover:bg-white/10'}`} title={tr('tool.alerts.title')}>
-            <AlertTriangle className={`w-4 h-4 ${showAlerts ? 'text-[#FF3D3D]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowAlerts(!showAlerts); setShowIntel(false); setShowMarkets(false); setShowEntityGraph(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showAlerts ? 'bg-[#FF3D3D]/20' : 'hover:bg-white/10'}`} title={tr('tool.alerts.title')}>
+            <AlertTriangle className={`w-5 h-5 ${showAlerts ? 'text-[#FF3D3D]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.alerts')}</span>
           <AnimatePresence>
@@ -1533,28 +1580,18 @@ export default function Dashboard() {
         </div>
 
         <div className="relative group">
-          <button onClick={() => { setShowEntityGraph(!showEntityGraph); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showEntityGraph ? 'bg-[#D4AF37]/20' : 'hover:bg-white/10'}`} title={tr('tool.graph.title')}>
-            <Network className={`w-4 h-4 ${showEntityGraph ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowEntityGraph(!showEntityGraph); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showEntityGraph ? 'bg-[#D4AF37]/20' : 'hover:bg-white/10'}`} title={tr('tool.graph.title')}>
+            <Network className={`w-5 h-5 ${showEntityGraph ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.graph')}</span>
-        </div>
-
-        {/* Static info modal, not a data panel — what the model can be used
-            for, straight from the pitch deck's own six-category slide. Public,
-            ungated, and does not close/interact with the live panels. */}
-        <div className="relative group">
-          <button onClick={() => setShowCapabilities(true)} className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10" title={tr('tool.capabilities.title')}>
-            <Info className="w-4 h-4 text-white/60" />
-          </button>
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.capabilities')}</span>
         </div>
 
         {/* Gated: the reasoning panel exposes DINGIR's trained embedding space.
             Hidden entirely when signed out, so the public demo shows no trace of it. */}
         {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => { setShowReasoningPanel(!showReasoningPanel); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningPanel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={`${tr('tool.reasoning.title')} (${dingirLogin})`}>
-            <Brain className={`w-4 h-4 ${showReasoningPanel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowReasoningPanel(!showReasoningPanel); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showReasoningPanel ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={`${tr('tool.reasoning.title')} (${dingirLogin})`}>
+            <Brain className={`w-5 h-5 ${showReasoningPanel ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.reasoning')}</span>
         </div>
@@ -1565,8 +1602,8 @@ export default function Dashboard() {
             list and detail are meant to be read side by side. */}
         {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => setShowReasoningFeed(!showReasoningFeed)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showReasoningFeed ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.feed.title')}>
-            <Radio className={`w-4 h-4 ${showReasoningFeed ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => setShowReasoningFeed(!showReasoningFeed)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showReasoningFeed ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.feed.title')}>
+            <Radio className={`w-5 h-5 ${showReasoningFeed ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.feed')}</span>
         </div>
@@ -1578,12 +1615,12 @@ export default function Dashboard() {
             the same time, not instead of each other. */}
         {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => setShowPredictions(!showPredictions)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showPredictions ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.predictions.title')}>
+          <button onClick={() => setShowPredictions(!showPredictions)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showPredictions ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.predictions.title')}>
             {/* Telescope, not a crystal ball: the tool behind this panel does
                 not claim to see the future, it points at something real and
                 shows you the optics. The icon should not promise magic that
                 the causality chain then has to walk back. */}
-            <Telescope className={`w-4 h-4 ${showPredictions ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+            <Telescope className={`w-5 h-5 ${showPredictions ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.predictions')}</span>
         </div>
@@ -1594,8 +1631,8 @@ export default function Dashboard() {
             thing, sitting outside the strip that holds every other one. */}
         {dingirLogin && (
         <div className="relative group">
-          <button onClick={() => setShowAnalyst(!showAnalyst)} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showAnalyst ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.chat.title')}>
-            <MessageSquare className={`w-4 h-4 ${showAnalyst ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => setShowAnalyst(!showAnalyst)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showAnalyst ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.chat.title')}>
+            <MessageSquare className={`w-5 h-5 ${showAnalyst ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.chat')}</span>
         </div>
@@ -1603,15 +1640,15 @@ export default function Dashboard() {
 
 
         <div className="relative group">
-          <button onClick={() => { setShowDirections(!showDirections); if (showDirections) { setActiveRoute(null); } setShowDesktopSearch(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDirections ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.route.title')}>
-            <Route className={`w-4 h-4 ${showDirections ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowDirections(!showDirections); if (showDirections) { setActiveRoute(null); } setShowDesktopSearch(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showDirections ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.route.title')}>
+            <Route className={`w-5 h-5 ${showDirections ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.route')}</span>
         </div>
 
         <div className="relative group hidden">
-          <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.search.title')}>
-            <Search className={`w-4 h-4 ${showDesktopSearch ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowDesktopSearch(!showDesktopSearch); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showDesktopSearch ? 'bg-[var(--gold-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.search.title')}>
+            <Search className={`w-5 h-5 ${showDesktopSearch ? 'text-[var(--gold-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.search')}</span>
           <AnimatePresence>
@@ -1628,8 +1665,8 @@ export default function Dashboard() {
 
         {/* ── WORLD REMOTE ── */}
         <div className="relative group">
-          <button onClick={() => { setShowRemote(!showRemote); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); setShowDesktopSearch(false); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${showRemote ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.remote.title')}>
-            <Bluetooth className={`w-4 h-4 ${showRemote ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          <button onClick={() => { setShowRemote(!showRemote); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowEntityGraph(false); setShowDesktopSearch(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showRemote ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title={tr('tool.remote.title')}>
+            <Bluetooth className={`w-5 h-5 ${showRemote ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[8px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{tr('tool.remote')}</span>
           <AnimatePresence>
@@ -1864,32 +1901,32 @@ export default function Dashboard() {
 
       {/* ── Region Dossier ── */}
       {(regionDossier || dossierLoading) && (
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="absolute top-16 md:top-20 left-2 right-2 md:left-1/2 md:right-auto md:-translate-x-1/2 z-[300] md:w-[480px] max-h-[65vh] overflow-y-auto styled-scrollbar">
-          <div className="glass-panel p-5 osiris-glow">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="absolute top-16 md:top-20 left-2 right-2 md:left-1/2 md:right-auto md:-translate-x-1/2 z-[300] md:w-[680px] max-h-[75vh] overflow-y-auto styled-scrollbar">
+          <div className="glass-panel p-6 osiris-glow">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-mono font-bold text-[var(--gold-primary)] tracking-wider">REGION DOSSIER</h2>
-              <button onClick={() => { setRegionDossier(null); setDossierLoading(false); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs">✕</button>
+              <h2 className="text-base font-mono font-bold text-[var(--gold-primary)] tracking-wider">REGION DOSSIER</h2>
+              <button onClick={() => { setRegionDossier(null); setDossierLoading(false); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-sm">✕</button>
             </div>
             {dossierLoading ? (
               <div className="text-center py-8">
                 <div className="w-5 h-5 border-2 border-[var(--gold-primary)] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                <span className="text-[8px] font-mono text-[var(--text-muted)] tracking-widest">COMPILING INTEL...</span>
+                <span className="text-[12px] font-mono text-[var(--text-muted)] tracking-widest">COMPILING INTEL...</span>
               </div>
             ) : regionDossier && (
               <div className="space-y-3">
-                <div><div className="hud-label mb-0.5">LOCATION</div><div className="text-xs text-[var(--text-primary)]">{regionDossier.location?.display_name}</div></div>
+                <div><div className="hud-label mb-0.5">LOCATION</div><div className="text-sm text-[var(--text-primary)]">{regionDossier.location?.display_name}</div></div>
                 {regionDossier.country && (
                   <div className="grid grid-cols-2 gap-2">
-                    <div><div className="hud-label mb-0.5">COUNTRY</div><div className="text-xs text-[var(--text-primary)]">{regionDossier.country.flag} {regionDossier.country.name}</div></div>
-                    <div><div className="hud-label mb-0.5">CAPITAL</div><div className="text-xs text-[var(--text-primary)]">{regionDossier.country.capital}</div></div>
-                    <div><div className="hud-label mb-0.5">POPULATION</div><div className="text-xs text-[var(--text-primary)]">{regionDossier.country.population?.toLocaleString()}</div></div>
-                    <div><div className="hud-label mb-0.5">REGION</div><div className="text-xs text-[var(--text-primary)]">{regionDossier.country.subregion || regionDossier.country.region}</div></div>
-                    <div><div className="hud-label mb-0.5">LANGUAGES</div><div className="text-xs text-[var(--text-primary)]">{regionDossier.country.languages?.join(', ')}</div></div>
-                    <div><div className="hud-label mb-0.5">AREA</div><div className="text-xs text-[var(--text-primary)]">{regionDossier.country.area?.toLocaleString()} km²</div></div>
+                    <div><div className="hud-label mb-0.5">COUNTRY</div><div className="text-sm text-[var(--text-primary)]">{regionDossier.country.flag} {regionDossier.country.name}</div></div>
+                    <div><div className="hud-label mb-0.5">CAPITAL</div><div className="text-sm text-[var(--text-primary)]">{regionDossier.country.capital}</div></div>
+                    <div><div className="hud-label mb-0.5">POPULATION</div><div className="text-sm text-[var(--text-primary)]">{regionDossier.country.population?.toLocaleString()}</div></div>
+                    <div><div className="hud-label mb-0.5">REGION</div><div className="text-sm text-[var(--text-primary)]">{regionDossier.country.subregion || regionDossier.country.region}</div></div>
+                    <div><div className="hud-label mb-0.5">LANGUAGES</div><div className="text-sm text-[var(--text-primary)]">{regionDossier.country.languages?.join(', ')}</div></div>
+                    <div><div className="hud-label mb-0.5">AREA</div><div className="text-sm text-[var(--text-primary)]">{regionDossier.country.area?.toLocaleString()} km²</div></div>
                   </div>
                 )}
-                {regionDossier.head_of_state && (<div><div className="hud-label mb-0.5">HEAD OF STATE</div><div className="text-xs text-[var(--gold-primary)]">{regionDossier.head_of_state.name}</div><div className="text-[8px] text-[var(--text-muted)]">{regionDossier.head_of_state.position}</div></div>)}
-                {regionDossier.wikipedia && (<div><div className="hud-label mb-1">INTELLIGENCE BRIEF</div><div className="flex gap-3">{regionDossier.wikipedia.thumbnail && <img src={regionDossier.wikipedia.thumbnail} alt="" className="w-14 h-14 rounded object-cover flex-shrink-0" />}<p className="text-[8px] text-[var(--text-secondary)] leading-relaxed">{regionDossier.wikipedia.extract}</p></div></div>)}
+                {regionDossier.head_of_state && (<div><div className="hud-label mb-0.5">HEAD OF STATE</div><div className="text-sm text-[var(--gold-primary)]">{regionDossier.head_of_state.name}</div><div className="text-[12px] text-[var(--text-muted)]">{regionDossier.head_of_state.position}</div></div>)}
+                {regionDossier.wikipedia && (<div><div className="hud-label mb-1">INTELLIGENCE BRIEF</div><div className="flex gap-3">{regionDossier.wikipedia.thumbnail && <img src={regionDossier.wikipedia.thumbnail} alt="" className="w-24 h-24 rounded object-cover flex-shrink-0" />}<p className="text-[12px] text-[var(--text-secondary)] leading-relaxed">{regionDossier.wikipedia.extract}</p></div></div>)}
               </div>
             )}
           </div>
@@ -1955,6 +1992,7 @@ export default function Dashboard() {
         <AiAnalyst
           data={data}
           graphEnabled
+          offsetRight={toolRailWidth + predWidth + feedWidth}
           focusNode={reasoningFocus}
           open={showAnalyst}
           onClose={() => setShowAnalyst(false)}
@@ -1965,7 +2003,7 @@ export default function Dashboard() {
       {dingirLogin && evidenceNode && (
         <EvidencePanel
           node={evidenceNode}
-          rightOffset={showReasoningPanel ? railWidth + 520 : 0}
+          rightOffset={railWidth + (showReasoningPanel ? 520 : 0)}
           onOpenNode={(id) => setEvidenceNode(id)}
           onClose={() => setEvidenceNode(null)}
         />
@@ -1976,7 +2014,7 @@ export default function Dashboard() {
           making a falsifiable claim. */}
       {showReasoningFeed && (
         <ReasoningFeed
-          offsetRight={predWidth}
+          offsetRight={predWidth + toolRailWidth}
           onWidthChange={setFeedWidth}
           onInspect={id => { setReasoningFocus(id); setShowReasoningPanel(true); }}
           onClose={() => setShowReasoningFeed(false)}
@@ -2016,16 +2054,40 @@ export default function Dashboard() {
       {/* Keyboard Shortcuts Overlay */}
       <KeyboardShortcuts />
 
-      {/* "What the model can be used for" — static info modal, toggled from the right tool strip */}
-      {showCapabilities && <CapabilitiesPanel isOpen={showCapabilities} onClose={() => setShowCapabilities(false)} />}
 
       {/* ── GLOBAL STATUS TICKER (bottom) ── */}
       <GlobalStatusBar />
 
-      {/* Shortcut hint — more visible */}
-      <div className="desktop-only absolute bottom-[26px] right-5 z-[200] pointer-events-none text-[7px] font-mono text-[var(--text-muted)] opacity-50 tracking-widest" title="Press ? to see all keyboard shortcuts">
-        Press <span className="text-[var(--gold-primary)] opacity-80">?</span> for shortcuts · <span className="text-[var(--gold-primary)] opacity-80">F</span> fullscreen · <span className="text-[var(--gold-primary)] opacity-80">R</span> reset view
-      </div>
+      {/* ── BOTTOM-RIGHT STATUS (desktop) ──
+          Clock, link state and counts live down here so the top right stays
+          sign-in and language only. Same row as the view controls on the left;
+          the shortcut hint only appears where there is room for it. */}
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 3 }} className="desktop-only absolute bottom-1.5 right-4 z-[200] h-[30px] pointer-events-none flex items-center gap-4 whitespace-nowrap text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
+        <div className="flex items-center gap-3">
+          <span className="hidden lg:inline-flex items-center gap-1.5">
+            <ZuluClock />
+          </span>
+
+          <span className="flex items-center gap-1" title="Backend connection status">STATUS: <span className={backendStatus === 'connected' ? 'text-[var(--alert-green)]' : 'text-[var(--alert-red)]'}>{backendStatus === 'connected' ? 'LIVE' : backendStatus.toUpperCase()}</span></span>
+
+          <span className="hidden lg:inline-flex items-center gap-1" title="Number of active data layers">
+            <span className="text-[var(--cyan-primary)] font-bold">{Object.values(activeLayers).filter(Boolean).length}</span>
+            <span className="opacity-60">LAYERS</span>
+          </span>
+
+          <span className="hidden lg:inline-flex items-center gap-1" title="Tracked entities on map">
+            <ActiveEntityCount data={data} />
+            <span className="opacity-60">ENTITIES</span>
+          </span>
+
+          {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
+
+          <span className="text-[10px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.4.1</span>
+        </div>
+        <div className="hidden 2xl:block text-[8px] opacity-50" title="Press ? to see all keyboard shortcuts">
+          Press <span className="text-[var(--gold-primary)] opacity-80">?</span> for shortcuts · <span className="text-[var(--gold-primary)] opacity-80">F</span> fullscreen · <span className="text-[var(--gold-primary)] opacity-80">R</span> reset view
+        </div>
+      </motion.div>
 
 
     </main>

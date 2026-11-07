@@ -19,6 +19,7 @@ services:
     environment:
       - NODE_OPTIONS=--dns-result-order=ipv4first
       - NODE_ENV=production
+      - INTEL_URL=http://osiris-intel:4000
       - PORT=3000
       - HOSTNAME=0.0.0.0
     extra_hosts:

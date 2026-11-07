@@ -116,10 +116,11 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
   return (
     <AnimatePresence>
         <motion.div
+          layout
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          transition={{ duration: 0.3, type: "spring", bounce: 0 }}
+          transition={{ duration: 0.3, type: "spring", bounce: 0, layout: { type: 'tween', duration: 0.38, ease: [0.2, 0.8, 0.2, 1] } }}
           className={`fixed z-[500] ${
             fullscreen 
               ? 'inset-2 md:inset-4' 

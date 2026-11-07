@@ -82,6 +82,9 @@ function fmtWindow(a: string, b: string): string {
   return `${a.replace('T', ' ').slice(0, 16)} → ${b.replace('T', ' ').slice(0, 16)} UTC`;
 }
 
+/** Width of the causality-chain column that opens beside the forecast table. */
+const CHAIN_W = 440;
+
 interface Props {
   onClose: () => void;
   /** Opens the reasoning/whitebox panel on a node id. */
@@ -108,7 +111,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  const width = expanded ? 1120 : 860;
+  const width = (expanded ? 1120 : 860) + (openChain ? CHAIN_W : 0);
   useEffect(() => { onWidthChange?.(width); }, [width, onWidthChange]);
   useEffect(() => () => onWidthChange?.(0), [onWidthChange]);
 
@@ -190,7 +193,9 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
     return `${h}:${m}:${s}`;
   };
 
-  // Escape closes the modal. Registered only while it is open, so it cannot
+  useEffect(() => { if (openChain && data && !chain) setOpenChain(null); }, [openChain, data, chain]);
+
+  // Escape closes the chain column. Registered only while it is open, so it cannot
   // swallow the key from the panel or the map underneath.
   useEffect(() => {
     if (!chain) return;
@@ -204,17 +209,19 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
       <motion.div
         initial={{ x: 500, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 500, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed top-0 h-full z-[498] flex flex-col glass-panel overflow-hidden bg-[#080c15]"
+        className="fixed top-0 h-full z-[498] flex flex-row glass-panel overflow-hidden bg-[#080c15]"
         style={{
           left: 'auto',
           right: offsetRight,
-          width: expanded
+          width: expanded || openChain
             ? `min(${width}px, calc(100vw - ${offsetRight}px))`
             : `min(${width}px, 68vw)`,
+          transition: 'width 0.38s cubic-bezier(0.2, 0.8, 0.2, 1), right 0.38s cubic-bezier(0.2, 0.8, 0.2, 1)',
           borderLeft: '1px solid var(--border-primary)',
           borderRadius: 0,
         }}
       >
+        <div className="relative flex min-w-0 flex-1 flex-col">
         {/* ── header: the scoreboard first, because a forecast tool with no
             track record is a marketing surface ───────────────────────────── */}
         <div className="px-5 py-4 border-b border-white/[0.08] shrink-0">
@@ -237,24 +244,32 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
             </button>
           </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y divide-white/[0.08] border border-white/[0.08]">
-            {[
-              { label: 'TREFFER / MISSES', value: sb && (sb.hits + sb.misses) > 0 ? `${((sb.hits / (sb.hits + sb.misses)) * 100).toFixed(1)}%` : '—', sub: sb ? `${sb.hits} / ${sb.hits + sb.misses}` : '—', color: 'text-white' },
-              { label: 'COVERAGE', value: sb?.coverage == null ? '—' : `${(sb.coverage * 100).toFixed(1)}%`, sub: 'WINDOW COVERAGE', color: 'text-white' },
-              { label: 'EVALUIERT', value: sb ? `${sb.hits + sb.misses}` : '—', sub: 'PROGNOSEN', color: 'text-white' },
-              { label: 'WORKER STATUS', value: data?.worker?.worker === 'running' ? '● RUNNING' : data?.worker?.worker === 'degraded' ? '● DEGRADED' : '● STOPPED', sub: data?.worker?.worker === 'running' ? 'PID ACTIVE' : 'CHECK LOG', color: data?.worker?.worker === 'running' ? 'text-[#00f5c4]' : 'text-[#ffd166]' },
-              { label: 'NÄCHSTE PROGNOSE', value: formatCountdown(data?.worker?.next_issue_due_utc), sub: 'AUTOMATISCH', color: 'text-white' },
-              { label: 'OPEN', value: `${data?.live?.open ?? 0}`, sub: 'PROGNOSEN', color: 'text-white' },
-              { label: 'AWAITING SCORE', value: `${data?.live?.awaiting_score ?? 0}`, sub: 'PROGNOSEN', color: 'text-white' },
-              { label: 'SCORED', value: `${data?.live?.scored ?? 0}`, sub: 'PROGNOSEN', color: 'text-white' },
-            ].map(stat => (
-              <div key={stat.label} className="px-3 py-3 min-w-0">
-                <div className="text-[8px] tracking-widest text-[#c3c8d2] whitespace-nowrap">{stat.label}</div>
-                <div className={`mt-2 text-[19px] leading-none tabular-nums whitespace-nowrap overflow-hidden text-ellipsis ${stat.color}`}>{stat.value}</div>
-                <div className="mt-1 text-[8px] text-[#c3c8d2] whitespace-nowrap">{stat.sub}</div>
+          {/* The loop this tool runs, left to right: issue a forecast, follow it while its window is open,
+              score it against what happened. Three numbers, one per step. */}
+          {(() => {
+            const scoredN = sb ? sb.hits + sb.misses : 0;
+            const running = data?.worker?.worker === 'running';
+            const steps = [
+              { n: '1', label: 'PREDICT', value: formatCountdown(data?.worker?.next_issue_due_utc), sub: 'until the next forecast is issued', dot: running ? '#00f5c4' : '#ffd166', dotLabel: running ? 'engine running' : 'engine not running' },
+              { n: '2', label: 'TRACK', value: `${(data?.live?.open ?? 0) + (data?.live?.awaiting_score ?? 0)}`, sub: `${data?.live?.open ?? 0} open · ${data?.live?.awaiting_score ?? 0} waiting for the result` },
+              { n: '3', label: 'SCORE', value: scoredN > 0 && sb ? `${((sb.hits / scoredN) * 100).toFixed(0)}%` : '—', sub: scoredN > 0 && sb ? `${sb.hits} of ${scoredN} landed inside the 95% range` : 'nothing scored yet' },
+            ];
+            return (
+              <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-stretch gap-2">
+                {steps.flatMap((st, i) => [
+                  <div key={st.label} className="min-w-0 rounded-lg border border-white/10 bg-[#0d1420] px-3 py-3">
+                    <div className="flex items-center gap-1.5 text-[10px] tracking-[.18em] text-white">
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[9px]">{st.n}</span>{st.label}
+                      {st.dot && <span className="ml-auto flex items-center gap-1 text-[9px] tracking-normal text-[#c3c8d2]"><span className="h-1.5 w-1.5 rounded-full" style={{ background: st.dot }} />{st.dotLabel}</span>}
+                    </div>
+                    <div className="mt-2 text-[24px] leading-none tabular-nums text-white">{st.value}</div>
+                    <div className="mt-1.5 text-[10px] leading-snug text-[#c3c8d2]">{st.sub}</div>
+                  </div>,
+                  ...(i < steps.length - 1 ? [<ChevronRight key={`a${i}`} className="self-center h-4 w-4 text-[#c3c8d2]" />] : []),
+                ])}
               </div>
-            ))}
-          </div>
+            );
+          })()}
         </div>
 
         <div className="shrink-0 border-b border-white/[0.08] bg-[#080c15] px-5 py-3">
@@ -370,9 +385,9 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
               </div>
 
               <div className="px-4 pt-4 pb-2 border-b border-white/[0.06]">
-                <div className="text-[10px] tracking-widest text-[var(--text-primary)]">EREIGNISSE IM AUSGEWÄHLTEN FENSTER</div>
+                <div className="text-[10px] tracking-widest text-[var(--text-primary)]">EVENTS IN THE SELECTED WINDOW</div>
                 <div className="mt-2 grid grid-cols-[minmax(0,2fr)_0.8fr_0.9fr_auto] gap-3 text-[8px] tracking-widest text-[#c3c8d2]">
-                  <span>EREIGNIS</span><span>WAHRSCHEINLICHKEIT</span><span>ERWARTETE ANZAHL</span><span>KAUSALKETTE</span>
+                  <span>EVENT</span><span>PROBABILITY</span><span>EXPECTED</span><span>SEEN</span>
                 </div>
               </div>
 
@@ -380,7 +395,6 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
               {rows.map(m => {
                 const pctv = m.percent_at_least_one ?? 0;
                 const chainOpen = openChain === m.mainshock_id;
-                const [lo, hi] = m.interval_95_poisson;
                 return (
                   <div key={m.mainshock_id} className="border-b border-white/[0.04]">
                     {/* TITLE -> whitebox on the mainshock node */}
@@ -392,8 +406,8 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                         M{m.mainshock_mag} · {m.mainshock_place}
                       </span>
                       <span className="tabular-nums text-[15px]" style={{ color: probColour(pctv) }}>{pctv.toFixed(1)}%</span>
-                      <span className="text-[9px] tabular-nums text-[#c3c8d2]">{m.predicted_count} ± {Math.max(0.1, (hi - lo) / 4).toFixed(1)}</span>
-                      <span className="text-[9px] text-[#c3c8d2]">{m.aftershocks_observed_so_far} obs.</span>
+                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">expect {m.predicted_count}</span>
+                      <span className="text-[11px] tabular-nums text-[#c3c8d2]">seen {m.aftershocks_observed_so_far}</span>
                     </button>
 
                     {/* BODY -> the causality chain */}
@@ -403,8 +417,8 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                       role="button" tabIndex={0} title={tr('pred.body.hint')}
                       className={`block w-full text-left px-4 pb-2.5 hover:bg-white/[0.03] transition-colors ${chainOpen ? 'bg-white/[0.03]' : ''}`}>
                       <div className="flex items-baseline gap-2">
-                        <span className="text-[9px] tabular-nums text-[#c3c8d2]">
-                          {tr('pred.expected')} {m.predicted_count} · 95% [{lo}, {hi}]
+                        <span className="text-[10px] tabular-nums text-[#c3c8d2]">
+                          {m.aftershock_zone_radius_km} km zone · {m.horizon_days} days
                         </span>
                         {m.verdict && (
                           <span className={`ml-auto text-[8px] tabular-nums tracking-widest border rounded px-1 ${
@@ -415,9 +429,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                           </span>
                         )}
                       </div>
-                      <div className="mt-1 text-[9px] tabular-nums text-[#c3c8d2]">
-                        {m.aftershocks_observed_so_far} {tr('pred.observed')} ·{' '}
-                        {m.aftershock_zone_radius_km} km · {m.horizon_days}d ·{' '}
+                      <div className="mt-1 text-[10px] tabular-nums text-[#c3c8d2]">
                         <button onClick={event => { event.stopPropagation(); setOpenChain(chainOpen ? null : m.mainshock_id); }} className="ml-1 rounded border border-[var(--cyan-primary)]/40 px-1.5 py-0.5 text-[var(--cyan-primary)] hover:bg-[var(--cyan-primary)]/10">
                           {chainOpen ? tr('pred.chain.hide') : tr('pred.chain.show')}
                         </button>
@@ -463,35 +475,18 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
             </>
           )}
         </div>
-      </motion.div>
+      </div>
 
-      {/* ── the causality chain, as a real modal ──────────────────────────
-          WAS AN INLINE ACCORDION, AND IT WAS WRONG TWICE. It animated
-          height 0 -> auto inside an already-scrolling container, which did
-          not reliably open at all; and even when it did, nine stages of
-          reasoning were being folded into a 460px column where sentences
-          and a 300-character USGS query had nowhere to wrap.
-
-          A causality chain is the thing an operator actually reads before
-          acting on a number. It gets the screen, not a gutter. */}
-      <AnimatePresence>
-        {chain && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-[700] flex items-center justify-center p-4 sm:p-8"
-            style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
-            onClick={() => setOpenChain(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.97, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.97, y: 12 }}
-              transition={{ type: 'spring', damping: 26, stiffness: 260 }}
-              // Stops a click inside the dialog from reaching the backdrop
-              // handler and closing it mid-read.
-              onClick={e => e.stopPropagation()}
-              role="dialog" aria-modal="true"
-              className="glass-panel w-full max-w-3xl max-h-[88vh] flex flex-col"
-              style={{ border: '1px solid var(--border-primary)' }}
+        {/* ── the causality chain, as a column beside the table. It was a modal that covered the very
+            numbers it explains; now the row stays visible while its reasoning is read. ── */}
+        <AnimatePresence initial={false}>
+          {chain && f && (
+            <motion.aside
+              key="chain"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              className="flex shrink-0 flex-col border-l border-white/[0.12] bg-[#0a0f1a]"
+              style={{ width: CHAIN_W }}
             >
               <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-white/[0.08] shrink-0">
                 <div className="min-w-0">
@@ -555,10 +550,10 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                   </div>
                 ))}
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.aside>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </AnimatePresence>
   );
 }

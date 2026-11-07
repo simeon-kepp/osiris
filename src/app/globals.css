@@ -47,8 +47,8 @@
 
   /* ── Text ── */
   --text-primary: #E8E6E0;
-  --text-secondary: #9B978E;
-  --text-muted: #5C5A54;
+  --text-secondary: #C9CED8;
+  --text-muted: #A3ABBA;
   --text-heading: #F5F0E0;
   --text-gold: #D4AF37;
   --text-cyan: #00E5FF;
@@ -120,8 +120,8 @@ body.theme-ghost {
   --border-cyan: rgba(124, 77, 255, 0.25);
 
   --text-primary: #E1BEE7;
-  --text-secondary: #9575CD;
-  --text-muted: #4A148C;
+  --text-secondary: #CDB8F2;
+  --text-muted: #B9A2E6;
   --text-heading: #B388FF;
   --text-gold: #B388FF;
   --text-cyan: #7C4DFF;
@@ -245,7 +245,7 @@ html:has(.docs-root) body {
 
 .hud-label {
   font-family: var(--font-hud);
-  font-size: 7px;
+  font-size: 10px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -332,6 +332,12 @@ html:has(.docs-root) body {
    10 further down, which still needs to beat this. */
 .maplibregl-popup { z-index: 3; }
 .maplibregl-popup-tip { display: none !important; }
+/* Popup bodies are written with small fixed pixel sizes (9-12px). Scaling the whole card keeps their
+   proportions and gives every popup, from vessels to fires, the same roomier size. */
+@media (min-width: 768px) {
+  .maplibregl-popup-content > div { zoom: 1.3; }
+  .maplibregl-popup-close-button { font-size: 20px !important; padding: 6px 10px !important; }
+}
 .maplibregl-ctrl-attrib { display: none !important; }
 .maplibregl-popup-close-button { color: var(--text-muted) !important; font-size: 16px !important; padding: 4px 8px !important; }
 .maplibregl-popup-close-button:hover { color: var(--gold-primary) !important; }

@@ -25,8 +25,8 @@ export type Locale = 'en' | 'de';
 const DICT = {
   en: {
     'header.title': 'DINGIR',
-    'tool.reasoning': 'REASONING',
-    'tool.reasoning.title': "Reasoning Panel — DINGIR's trained graph-embedding space",
+    'tool.reasoning': 'WHITEBOX',
+    'tool.reasoning.title': "Whitebox Panel — DINGIR's trained graph-embedding space, open to inspection",
     'tool.feed': 'FEED',
     'tool.feed.title': 'Reasoning Feed — what DINGIR is currently noticing, with observations and hypotheses kept apart',
     'tool.predictions': 'FORECAST',
@@ -53,7 +53,7 @@ const DICT = {
     'tool.remote.title': 'World Remote — control nearby Bluetooth devices (TVs, speakers, AC)',
     'lang.toggle': 'Switch dashboard language',
     // Reasoning panel
-    'reasoning.title': 'REASONING PANEL',
+    'reasoning.title': 'WHITEBOX PANEL',
     'reasoning.subtitle': 'DINGIR graph-embedding inspector',
     'reasoning.evidence': 'EVIDENCE',
     'reasoning.evidence.title': (n: string) => `What the corpus records about ${n}`,
@@ -137,8 +137,8 @@ const DICT = {
   },
   de: {
     'header.title': 'DINGIR',
-    'tool.reasoning': 'REASONING',
-    'tool.reasoning.title': 'Reasoning-Panel — DINGIRs trainierter Graph-Embedding-Raum',
+    'tool.reasoning': 'WHITEBOX',
+    'tool.reasoning.title': 'Whitebox-Panel — DINGIRs trainierter Graph-Embedding-Raum, offen einsehbar',
     'tool.feed': 'FEED',
     'tool.feed.title': 'Reasoning-Feed — was DINGIR gerade bemerkt, Beobachtung und Hypothese getrennt gehalten',
     'tool.predictions': 'PROGNOSE',
@@ -164,7 +164,7 @@ const DICT = {
     'tool.remote': 'REMOTE',
     'tool.remote.title': 'World Remote — Bluetooth-Geräte in der Nähe steuern (TV, Lautsprecher, Klima)',
     'lang.toggle': 'Dashboard-Sprache wechseln',
-    'reasoning.title': 'REASONING-PANEL',
+    'reasoning.title': 'WHITEBOX-PANEL',
     'reasoning.subtitle': 'DINGIR-Graph-Embedding-Inspektor',
     'reasoning.evidence': 'BELEGE',
     'reasoning.evidence.title': (n: string) => `Was der Korpus über ${n} festhält`,

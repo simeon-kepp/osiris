@@ -134,6 +134,7 @@ export default function ReasoningFeed({ onClose, onInspect, offsetRight = 0, onW
         style={{
           right: offsetRight,
           width: `min(${expanded ? 900 : 460}px, ${expanded ? 95 : 92}vw)`,
+          transition: 'width 0.38s cubic-bezier(0.2, 0.8, 0.2, 1), right 0.38s cubic-bezier(0.2, 0.8, 0.2, 1)',
           borderLeft: '1px solid var(--border-primary)',
           borderRadius: 0,
         }}

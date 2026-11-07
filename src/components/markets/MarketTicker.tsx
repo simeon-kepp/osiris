@@ -24,7 +24,7 @@ export function formatPrice(value: number): string {
   return value.toFixed(4);
 }
 
-function Sparkline({ points, up }: { points: number[]; up: boolean }) {
+export function Sparkline({ points, up }: { points: number[]; up: boolean }) {
   const path = useMemo(() => {
     if (points.length < 2) return null;
     const width = 46;
@@ -59,13 +59,13 @@ export default function MarketTicker({ quote, active, onSelect }: {
       className={`grid w-full grid-cols-[minmax(0,1fr)_52px_78px] items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors ${active ? 'border-[var(--border-primary)] bg-[var(--hover-accent)]' : 'border-transparent hover:bg-[var(--hover-accent)]'}`}
     >
       <div className="min-w-0">
-        <div className="truncate font-mono text-[10px] tracking-wide text-[#e4e8ef]">{quote.name}</div>
-        {quote.symbol && quote.symbol !== quote.name && <div className="truncate font-mono text-[8px] text-[#b7c0ce]">{quote.symbol}</div>}
+        <div className="truncate font-mono text-[11px] tracking-wide text-[#e4e8ef]">{quote.name}</div>
+        {quote.symbol && quote.symbol !== quote.name && <div className="truncate font-mono text-[9px] text-[#b7c0ce]">{quote.symbol}</div>}
       </div>
       <Sparkline points={quote.spark || []} up={quote.up} />
       <div className="flex shrink-0 flex-col items-end">
-        <span className="font-mono text-[11px] font-bold tabular-nums text-[var(--text-primary)]">{formatPrice(quote.price)}</span>
-        <span className="flex items-center gap-0.5 font-mono text-[9px] font-bold tabular-nums" style={{ color: quote.up ? GREEN : RED }}>
+        <span className="font-mono text-[12px] font-bold tabular-nums text-[var(--text-primary)]">{formatPrice(quote.price)}</span>
+        <span className="flex items-center gap-0.5 font-mono text-[10px] font-bold tabular-nums" style={{ color: quote.up ? GREEN : RED }}>
           {quote.up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
           {quote.change_percent > 0 ? '+' : ''}{quote.change_percent?.toFixed(2)}%
         </span>

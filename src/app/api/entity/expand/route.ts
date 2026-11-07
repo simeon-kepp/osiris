@@ -13,11 +13,10 @@ export const dynamic = 'force-dynamic';
  * just validates the request and forwards it.
  */
 
-const INTEL_URL = process.env.INTEL_URL || (
-  process.env.NODE_ENV === 'production'
-    ? 'http://osiris-intel:4000'
-    : 'http://localhost:4000'
-);
+// Docker compose sets INTEL_URL to the service hostname. Without it the intel
+// layer runs on this machine (colony serves a production build without Docker),
+// so the old production default `osiris-intel` made every call fail with a 502.
+const INTEL_URL = process.env.INTEL_URL || 'http://127.0.0.1:4000';
 
 const ALLOWED_TYPES = new Set(['aircraft', 'vessel', 'company', 'person', 'ip', 'country']);
 

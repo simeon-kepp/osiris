@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createChart, CandlestickSeries, HistogramSeries,
+  createChart, CandlestickSeries, HistogramSeries, LineSeries,
   type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from 'lightweight-charts';
 import { X, Loader2, AlertTriangle } from 'lucide-react';
@@ -12,12 +12,35 @@ interface Candle {
   open: number; high: number; low: number; close: number; volume: number;
 }
 
+/** Wilder's RSI. Needs period+1 closes before the first value exists. */
+function computeRsi(candles: { time: number; close: number }[], period = 14): { time: number; value: number }[] {
+  if (candles.length <= period) return [];
+  let gain = 0, loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = candles[i].close - candles[i - 1].close;
+    if (d >= 0) gain += d; else loss -= d;
+  }
+  let avgGain = gain / period, avgLoss = loss / period;
+  const out: { time: number; value: number }[] = [];
+  const toRsi = () => (avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss));
+  out.push({ time: candles[period].time, value: toRsi() });
+  for (let i = period + 1; i < candles.length; i++) {
+    const d = candles[i].close - candles[i - 1].close;
+    avgGain = (avgGain * (period - 1) + Math.max(d, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-d, 0)) / period;
+    out.push({ time: candles[i].time, value: toRsi() });
+  }
+  return out;
+}
+
 interface MarketChartProps {
   symbol: string;
   name: string;
   onClose: () => void;
   /** Taller layout for the maximized panel, where there is room for it. */
   large?: boolean;
+  /** Explicit canvas height in px; overrides the large/small presets. */
+  chartHeight?: number;
 }
 
 /* Lowercase m is minutes, uppercase M is months — the convention every
@@ -51,11 +74,12 @@ function formatVolume(v: number): string {
   return String(v);
 }
 
-export default function MarketChart({ symbol, name, onClose, large = false }: MarketChartProps) {
+export default function MarketChart({ symbol, name, onClose, large = false, chartHeight }: MarketChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const rsiRef = useRef<ISeriesApi<'Line'> | null>(null);
 
   const [range, setRange] = useState<Range>('1M');
   /* Keyed by the request it answers, so status is derived rather than set on
@@ -64,7 +88,7 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
   /** Whatever the crosshair is currently over — falls back to the last bar. */
   const [hover, setHover] = useState<Candle | null>(null);
 
-  const height = large ? 420 : 200;
+  const height = chartHeight ?? (large ? 420 : 200);
 
   // ── Chart instance. Built once; data and axis formatting are applied later
   //    so that changing range never tears down the canvas.
@@ -95,9 +119,12 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
         // Keep the required TradingView attribution as a compact text link in
         // our chart footer instead of the large canvas logo overlay.
         attributionLogo: false,
+        // Price, volume and RSI are three panes, divided by a visible line the
+        // operator can drag to resize.
+        panes: { separatorColor: 'rgba(212,175,55,0.35)', separatorHoverColor: 'rgba(212,175,55,0.7)', enableResize: true },
       },
       grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
-      rightPriceScale: { borderColor: AXIS, scaleMargins: { top: 0.1, bottom: 0.26 } },
+      rightPriceScale: { borderColor: AXIS, scaleMargins: large ? { top: 0.08, bottom: 0.06 } : { top: 0.1, bottom: 0.26 } },
       timeScale: { borderColor: AXIS, secondsVisible: false },
       crosshair: {
         vertLine: { color: 'rgba(212,175,55,0.4)', labelBackgroundColor: '#D4AF37' },
@@ -112,13 +139,32 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
       borderVisible: false,
     });
 
-    // Volume sits in the bottom quarter, on its own invisible scale so it
-    // never distorts the price axis.
-    const volumeSeries = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'vol',
-    });
-    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    let volumeSeries: ISeriesApi<'Histogram'>;
+    if (large) {
+      // Fullscreen: one pane each for price, volume and RSI. Panes share one time
+      // scale, so panning and zooming stay in step across all three.
+      volumeSeries = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: 'volume' }, title: 'VOL', priceLineVisible: false,
+      }, 1);
+      volumeSeries.priceScale().applyOptions({ borderColor: AXIS, scaleMargins: { top: 0.15, bottom: 0.05 } });
+      const rsi = chart.addSeries(LineSeries, {
+        color: '#B388FF', lineWidth: 2, priceLineVisible: false, title: 'RSI 14',
+        autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
+      }, 2);
+      rsi.priceScale().applyOptions({ borderColor: AXIS, scaleMargins: { top: 0.1, bottom: 0.1 } });
+      rsi.createPriceLine({ price: 70, color: 'rgba(211,47,47,0.6)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '70' });
+      rsi.createPriceLine({ price: 30, color: 'rgba(38,166,154,0.6)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '30' });
+      const panes = chart.panes();
+      panes[0].setStretchFactor(5);
+      panes[1].setStretchFactor(1.4);
+      panes[2].setStretchFactor(1.8);
+      rsiRef.current = rsi;
+    } else {
+      // Docked: too small for panes, so volume sits in the bottom quarter on its own
+      // invisible scale and never distorts the price axis.
+      volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
+      chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    }
 
     chart.subscribeCrosshairMove((param) => {
       const d = param.seriesData.get(candleSeries) as Candle | undefined;
@@ -129,7 +175,8 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
     candleRef.current = candleSeries;
     volumeRef.current = volumeSeries;
 
-    return () => { chart.remove(); chartRef.current = null; };
+    return () => { chart.remove(); chartRef.current = null; rsiRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- built once; large is fixed per mount
   }, []);
 
   // Only intraday bars need the clock on the axis. Applied separately so
@@ -162,6 +209,9 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
     return () => { cancelled = true; };
   }, [symbol, range]);
 
+  const rsiPoints = useMemo(() => computeRsi(candles), [candles]);
+  const rsiByTime = useMemo(() => new Map(rsiPoints.map(r => [r.time, r.value])), [rsiPoints]);
+
   // Push data once both the series and the rows exist.
   useEffect(() => {
     if (status !== 'ready' || !candleRef.current || !volumeRef.current) return;
@@ -177,7 +227,10 @@ export default function MarketChart({ symbol, name, onClose, large = false }: Ma
       color: c.close >= c.open ? 'rgba(38,166,154,0.28)' : 'rgba(211,47,47,0.28)',
     })));
 
+    rsiRef.current?.setData(rsiPoints.map(r => ({ time: r.time as UTCTimestamp, value: r.value })));
+
     chartRef.current?.timeScale().fitContent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rsiPoints derives from candles
   }, [candles, status]);
 
   // ── Range summary: first open to last close across the window shown ──

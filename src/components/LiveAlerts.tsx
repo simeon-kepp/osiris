@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MapPin, ExternalLink, AlertTriangle, X,
-  Newspaper, Clock, Radio, Maximize2, Minimize2
+  Newspaper, Clock, Radio, Maximize2, Minimize2, Search
 } from 'lucide-react';
 import AiOverview from './AiOverview';
 
@@ -24,10 +24,26 @@ const RISK_COLORS: Record<string, string> = {
   LOW: '#00E676',
 };
 
+const SEVERITY_RANK: Record<string, number> = { LOW: 0, MODERATE: 1, ELEVATED: 2, HIGH: 3, CRITICAL: 4 };
+/** Minimum level shown; "ELEVATED" means elevated and everything above it. */
+const SEVERITY_CHIPS = [
+  { key: 'all', label: 'ALL', min: 0 },
+  { key: 'elevated', label: 'ELEVATED +', min: 2 },
+  { key: 'high', label: 'HIGH +', min: 3 },
+  { key: 'critical', label: 'CRITICAL', min: 4 },
+] as const;
+const FEED_REGIONS = [
+  { key: 'all', label: 'ALL REGIONS' }, { key: 'europe', label: 'EUROPE' }, { key: 'americas', label: 'AMERICAS' },
+  { key: 'middleeast', label: 'MIDDLE EAST' }, { key: 'asia', label: 'ASIA PACIFIC' }, { key: 'africa', label: 'AFRICA' },
+] as const;
+
 export default function LiveAlerts({ data, onLocate, onWatchFeed, onClose }: LiveAlertsProps) {
   const [expanded] = useState(true);
   const [maximized, setMaximized] = useState(false);
   const [filter, setFilter] = useState<'all' | 'news' | 'quakes' | 'feeds'>('all');
+  const [minSeverity, setMinSeverity] = useState<(typeof SEVERITY_CHIPS)[number]['key']>('all');
+  const [feedRegion, setFeedRegion] = useState<(typeof FEED_REGIONS)[number]['key']>('all');
+  const [query, setQuery] = useState('');
 
   // Built-in live feeds — verified video IDs (synced with /api/live-news)
   const BUILTIN_FEEDS = [
@@ -94,14 +110,25 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed, onClose }: Liv
       type: 'feed', title: f.name,
       source: `${f.city}, ${f.country}`,
       lat: f.lat, lng: f.lng,
-      feedUrl: f.url, severity: 'LOW', category: f.category,
+      feedUrl: f.url, severity: 'LOW', category: f.category, region: f.region,
     });
   });
 
-  const filtered = filter === 'all' ? alerts.filter(a => a.type !== 'feed') :
+  const byType = filter === 'all' ? alerts.filter(a => a.type !== 'feed') :
     filter === 'news' ? alerts.filter(a => a.type === 'news') :
     filter === 'quakes' ? alerts.filter(a => a.type === 'quake') :
     alerts.filter(a => a.type === 'feed');
+  const minRank = SEVERITY_CHIPS.find(c => c.key === minSeverity)?.min ?? 0;
+  const q = query.trim().toLowerCase();
+  const filtered = byType.filter(a =>
+    (a.type === 'feed' ? (feedRegion === 'all' || a.region === feedRegion) : (SEVERITY_RANK[a.severity] ?? 0) >= minRank) &&
+    (!q || `${a.title ?? ''} ${a.description ?? ''} ${a.source ?? ''}`.toLowerCase().includes(q)));
+  const typeCounts = {
+    all: alerts.filter(a => a.type !== 'feed').length,
+    news: alerts.filter(a => a.type === 'news').length,
+    quakes: alerts.filter(a => a.type === 'quake').length,
+    feeds: alerts.filter(a => a.type === 'feed').length,
+  };
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -118,9 +145,10 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed, onClose }: Liv
 
   const content = (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: 0.5, duration: 0.6 }}
+      layout
+      initial={maximized ? { opacity: 0, scale: 0.97 } : { opacity: 0, x: 20 }}
+      animate={maximized ? { opacity: 1, scale: 1 } : { opacity: 1, x: 0 }}
+      transition={{ delay: maximized ? 0 : 0.5, duration: maximized ? 0.28 : 0.6, layout: { type: 'tween', duration: 0.38, ease: [0.2, 0.8, 0.2, 1] } }}
       className={`glass-panel flex flex-col overflow-hidden pointer-events-auto transition-all duration-300 h-full min-h-0 ${maximized ? 'fixed inset-4 z-[9999] bg-[#0a0a09]/95 backdrop-blur-3xl' : ''}`}
     >
       {/* Header - Fixed Height, Never Shrinks */}
@@ -151,27 +179,54 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed, onClose }: Liv
             transition={{ duration: 0.2 }}
             className={`flex flex-col flex-1 min-h-0 ${maximized ? 'bg-[#0a0a09]' : 'bg-transparent'}`}
           >
-            {/* Filters - Fixed Height, Never Shrinks */}
-            <div className={`flex-shrink-0 flex gap-1 ${maximized ? 'px-6 py-4 border-b border-[#2A2A28] bg-[#111111]' : 'px-3 py-2 border-b border-[rgba(255,255,255,0.05)]'}`}>
-              {(['all', 'news', 'quakes', 'feeds'] as const).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={`px-3 py-1.5 rounded text-[10px] font-mono tracking-wider transition-all ${filter === f ? 'bg-[var(--cyan-primary)]/20 text-[var(--cyan-primary)] border border-[var(--cyan-primary)]/50' : 'text-[#8A8880] border border-transparent hover:text-[#E8E6E0] hover:bg-[#2A2A28]'}`}
-                >
-                  {f.toUpperCase()}
-                </button>
-              ))}
+            {/* Filters: what kind, how serious, and a text search */}
+            <div className={`flex-shrink-0 flex flex-col gap-2 border-b border-white/5 ${maximized ? 'px-8 py-4 bg-[#0d1117]' : 'px-3 py-2'}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-full border border-white/10 bg-black/30 p-0.5">
+                  {(['all', 'news', 'quakes', 'feeds'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setFilter(f)}
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-mono tracking-wider transition-colors ${filter === f ? 'bg-[var(--cyan-primary)]/20 text-[var(--cyan-primary)]' : 'text-[#C9CED8] hover:bg-white/10 hover:text-white'}`}
+                    >
+                      {f.toUpperCase()}
+                      <span className={`tabular-nums text-[9px] ${filter === f ? 'text-[var(--cyan-primary)]' : 'text-[#A3ABBA]'}`}>{typeCounts[f]}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="relative ml-auto min-w-[120px] max-w-[260px] flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[#A3ABBA]" />
+                  <input
+                    value={query} onChange={e => setQuery(e.target.value)} placeholder="Search alerts"
+                    className="w-full rounded-full border border-white/10 bg-black/30 py-1 pl-7 pr-3 text-[11px] font-mono text-white placeholder:text-[#A3ABBA] outline-none focus:border-[var(--cyan-primary)]/50"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {filter === 'feeds'
+                  ? FEED_REGIONS.map(r => (
+                      <button key={r.key} onClick={() => setFeedRegion(r.key)}
+                        className={`rounded-full border px-2.5 py-0.5 text-[9px] font-mono tracking-wider transition-colors ${feedRegion === r.key ? 'border-[var(--cyan-primary)]/60 bg-[var(--cyan-primary)]/15 text-[var(--cyan-primary)]' : 'border-white/10 text-[#C9CED8] hover:bg-white/10'}`}>
+                        {r.label}
+                      </button>
+                    ))
+                  : SEVERITY_CHIPS.map(c => (
+                      <button key={c.key} onClick={() => setMinSeverity(c.key)}
+                        className={`rounded-full border px-2.5 py-0.5 text-[9px] font-mono tracking-wider transition-colors ${minSeverity === c.key ? 'border-[#FF4081]/60 bg-[#FF4081]/15 text-[#FF8FB3]' : 'border-white/10 text-[#C9CED8] hover:bg-white/10'}`}>
+                        {c.label}
+                      </button>
+                    ))}
+              </div>
             </div>
 
             {/* One-click AI overview of the current alert picture */}
-            <div className={`flex-shrink-0 ${maximized ? 'px-6 pt-3' : 'px-3 pt-2'}`}>
+            <div className={`flex-shrink-0 ${maximized ? 'mx-auto w-full max-w-6xl px-8 pt-4' : 'px-3 pt-2'}`}>
               <AiOverview mode="alerts" payload={data} accent="#FF4081" />
             </div>
 
             {/* Alert List - Internally Scrolling */}
-            <div className={`flex-1 overflow-y-auto styled-scrollbar ${maximized ? 'p-6' : 'p-3'}`}>
-              <div className="space-y-2">
+            <div className={`flex-1 overflow-y-auto styled-scrollbar ${maximized ? 'px-8 py-6' : 'p-3'}`}>
+              <div className={maximized ? 'mx-auto grid w-full max-w-6xl grid-cols-1 gap-3 xl:grid-cols-2' : 'space-y-2'}>
                 {filtered.map((alert, i) => {
                   const Icon = getIcon(alert.type);
                 const sevColor = RISK_COLORS[alert.severity] || '#FFD700';
@@ -204,15 +259,15 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed, onClose }: Liv
                               character grid is the point; the sentence a human
                               actually reads gets the body face and two more
                               pixels (live feedback 2026-08-16). */}
-                          <span className={`text-[12px] text-[#E8E6E0] leading-relaxed ${alert.type === 'news' ? 'line-clamp-3' : 'truncate'}`}>
+                          <span className={`${maximized ? 'text-[14px]' : 'text-[12px]'} text-[#E8E6E0] leading-relaxed ${alert.type === 'news' ? 'line-clamp-3' : 'truncate'}`}>
                             {(alert.description || alert.title || '').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')}
                           </span>
                         </div>
                         <div className="flex items-center justify-between border-t border-[#2A2A28]/50 pt-1.5 mt-1.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-mono text-[#8A8880] uppercase tracking-wider">{alert.source}</span>
+                            <span className="text-[9px] font-mono text-[#B8BFCB] uppercase tracking-wider">{alert.source}</span>
                             {alert.time && (
-                              <span className="text-[9px] font-mono text-[#5C5A54] flex items-center gap-1 border-l border-[#2A2A28] pl-2">
+                              <span className="text-[9px] font-mono text-[#A9B1BF] flex items-center gap-1 border-l border-[#2A2A28] pl-2">
                                 <Clock className="w-2.5 h-2.5" />
                                 {new Date(alert.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>

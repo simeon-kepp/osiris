@@ -154,7 +154,7 @@ export default function GlobalStatusBar() {
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-[#FF5722] shrink-0" />
                     <span className="text-[#FF5722] font-bold">M{quake.magnitude.toFixed(1)}</span>
-                    <span className="text-white/30 truncate max-w-[140px]">{quake.place}</span>
+                    <span className="text-white/70 truncate max-w-[140px]">{quake.place}</span>
                   </span>
                 ))}
                 <span className="text-white/10 mx-2">│</span>
@@ -181,14 +181,14 @@ export default function GlobalStatusBar() {
             <div className="flex items-center gap-2 mb-2">
               <span className="w-2 h-2 rounded-full bg-[#FF5722] shrink-0" />
               <span className="font-bold text-[#FF5722]">Magnitude {hoveredQuake.magnitude.toFixed(1)}</span>
-              <span className="text-white/30 text-[8px] bg-white/5 px-1.5 py-0.5 rounded">USGS</span>
+              <span className="text-white/70 text-[8px] bg-white/5 px-1.5 py-0.5 rounded">USGS</span>
             </div>
             <div className="text-[11px] text-white font-bold mb-2">
               {hoveredQuake.place}
             </div>
             <div className="flex flex-col gap-1 text-[9px]">
-              <div className="text-white/50"><span className="text-white/30">Depth:</span> {hoveredQuake.depth} km</div>
-              <div className="text-white/50 mt-1"><span className="text-white/30">Time:</span> {new Date(hoveredQuake.time).toLocaleString()}</div>
+              <div className="text-white/50"><span className="text-white/70">Depth:</span> {hoveredQuake.depth} km</div>
+              <div className="text-white/50 mt-1"><span className="text-white/70">Time:</span> {new Date(hoveredQuake.time).toLocaleString()}</div>
             </div>
           </div>
         </div>

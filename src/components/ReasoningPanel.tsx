@@ -390,6 +390,7 @@ export default function ReasoningPanel({ onClose, focusNode, onShowEvidence, rai
           width: expanded
             ? `max(420px, calc(100vw - ${railWidth}px))`
             : 'min(520px, 92vw)',
+          transition: 'width 0.38s cubic-bezier(0.2, 0.8, 0.2, 1), right 0.38s cubic-bezier(0.2, 0.8, 0.2, 1)',
           borderLeft: '1px solid var(--border-primary)',
           borderRight: 'none', borderTop: 'none', borderBottom: 'none', borderRadius: 0,
         }}

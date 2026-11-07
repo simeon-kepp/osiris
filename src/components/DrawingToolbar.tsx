@@ -189,7 +189,7 @@ export default function DrawingToolbar({
             </div>
           </button>
           {isDrawing && (
-            <p className="text-[8px] font-mono text-white/40 mt-2 text-center tracking-wide">
+            <p className="text-[8px] font-mono text-white/70 mt-2 text-center tracking-wide">
               Click map to start · Double-click to finish
             </p>
           )}
@@ -206,7 +206,7 @@ export default function DrawingToolbar({
                 className="py-8 px-4 text-center"
               >
                 <Pentagon className="w-6 h-6 text-white/10 mx-auto mb-2" />
-                <p className="text-[9px] font-mono text-white/30 tracking-wider">No polygons drawn yet.</p>
+                <p className="text-[9px] font-mono text-white/70 tracking-wider">No polygons drawn yet.</p>
               </motion.div>
             ) : (
               polygons.map((polygon) => (
@@ -261,14 +261,14 @@ export default function DrawingToolbar({
                     </div>
                   </div>
                   
-                  <div className="flex items-center justify-between pl-1 text-[8px] font-mono text-white/40">
+                  <div className="flex items-center justify-between pl-1 text-[8px] font-mono text-white/70">
                     <div className="flex items-center gap-3">
                       <span className="flex items-center gap-1">
                         <Ruler className="w-2.5 h-2.5" />
                         {polygon.areaKm2.toFixed(2)} km²
                       </span>
                     </div>
-                    <span className="flex items-center gap-1 text-[7px] text-white/30">
+                    <span className="flex items-center gap-1 text-[7px] text-white/70">
                       <Clock className="w-2 h-2" />
                       {formatRelativeTime(polygon.createdAt)}
                     </span>

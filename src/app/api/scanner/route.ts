@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { validateHost, isRateLimited, getClientIp } from '@/lib/ssrf-guard';
+import { toHost, sslScan, headersScan, subdomainScan, techScan, vulnLookup } from '@/lib/native-scans';
 
 /**
  * OSIRIS — Scanner Proxy (Hardened)
@@ -37,10 +38,9 @@ const ALLOWED_SCANS: Record<string, { endpoint: string; timeout: number }> = {
 //   ports    → arbitrary port range scanning
 
 export async function GET(req: Request) {
-  // 1. Check scanner is configured
-  if (!SCANNER_KEY) {
-    return NextResponse.json({ error: 'Scanner not configured', hint: 'Set SCANNER_URL and SCANNER_KEY in .env' }, { status: 503 });
-  }
+  // 1. Without an external scanner the passive scans in native-scans.ts answer.
+  //    Only types it cannot do (rdns, geoloc, quick, ...) still report 503.
+  const nativeMode = !SCANNER_KEY;
 
   // 2. Rate limit by client IP
   const clientIp = getClientIp(req);
@@ -69,6 +69,30 @@ export async function GET(req: Request) {
       error: 'Target blocked',
       detail: `Target validation failed: ${guard.reason}`,
     }, { status: 403 });
+  }
+
+  if (nativeMode) {
+    const host = toHost(target);
+    const hostCheck = host === target ? guard : await validateHost(host);
+    if (!hostCheck.ok) {
+      return NextResponse.json({ error: 'Target blocked', detail: `Target validation failed: ${hostCheck.reason}` }, { status: 403 });
+    }
+    const ip = (hostCheck.resolved ?? [])[0];
+    try {
+      let data: Record<string, unknown>;
+      switch (scanType) {
+        case 'ssl': data = await sslScan(host, ip); break;
+        case 'headers': data = await headersScan(host); break;
+        case 'subdomains': data = await subdomainScan(host); break;
+        case 'tech': data = await techScan(host); break;
+        case 'vuln': data = await vulnLookup(host, ip); break;
+        default:
+          return NextResponse.json({ error: 'Scanner not configured', hint: `"${scanType}" needs an external scanner. Use PORT SCAN for open ports.` }, { status: 503 });
+      }
+      return NextResponse.json(data);
+    } catch (e: unknown) {
+      return NextResponse.json({ error: 'Scan failed', detail: e instanceof Error ? e.message : String(e) }, { status: 502 });
+    }
   }
 
   // 5. Validate scan type (only safe scans allowed)

@@ -10,7 +10,7 @@ interface SpaceWeather {
   solar_flares?: Array<{ class?: string }>;
 }
 
-export default function SpaceWeatherCard({ weather }: { weather?: SpaceWeather | null }) {
+export default function SpaceWeatherCard({ weather, compact = false }: { weather?: SpaceWeather | null; compact?: boolean }) {
   if (!weather) return null;
   const kp = Number(weather.kp_index);
   const storm = weather.storm_color || '#8b96a6';
@@ -19,6 +19,21 @@ export default function SpaceWeatherCard({ weather }: { weather?: SpaceWeather |
     ? 'Elevated geomagnetic activity — check GNSS, HF and satellite dependencies.'
     : 'Low geomagnetic activity — no elevated space-weather signal detected.';
   const flare = weather.solar_flares?.[0];
+
+  // Header chip: space weather is context here, not the headline.
+  if (compact) {
+    return (
+      <span
+        className="flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[8px] tracking-wider"
+        style={{ borderColor: `${storm}66`, color: storm }}
+        title={`${relevance} ${flare?.class ? `${flare.class} flare. ` : ''}${weather.alerts?.length || 0} active feed alerts.`}
+      >
+        <Zap className="h-2.5 w-2.5" />
+        Kp {Number.isFinite(kp) ? kp.toFixed(1) : '—'}
+        <span className="uppercase text-[#b7c0ce]">{weather.storm_level || ''}</span>
+      </span>
+    );
+  }
 
   return (
     <section className="rounded-lg border p-3" style={{ borderColor: `${storm}66`, background: `${storm}0d` }} aria-label="Space weather status">

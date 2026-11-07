@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import {
   X, Maximize2, Minimize2, Loader2, AlertTriangle,
   Plane, Ship, Building2, User, Globe, Newspaper, ShieldAlert,
-  RefreshCw, Network, Wifi
+  RefreshCw, Network, Wifi, Search
 } from 'lucide-react';
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
@@ -58,6 +58,15 @@ const TYPE_ICONS: Record<string, typeof Plane> = {
   ip: Wifi,
 };
 
+// ── TARGET PICKER ──
+// The rail button opens this panel without a map click, so the panel must be able to start on its own.
+
+const TARGET_TYPES = ['country', 'ip', 'aircraft', 'vessel', 'company', 'person'] as const;
+const SUGGESTIONS: { type: string; id: string }[] = [
+  { type: 'country', id: 'Ukraine' }, { type: 'country', id: 'Russia' }, { type: 'country', id: 'Iran' },
+  { type: 'country', id: 'China' }, { type: 'country', id: 'Israel' }, { type: 'country', id: 'United States' },
+];
+
 // ── PROPS ──
 
 interface Props {
@@ -74,6 +83,24 @@ function EntityGraphPanel({ entity, onClose }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const graphRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  /** What the graph is built around: the map click that opened the panel, or whatever was typed here. */
+  const [target, setTarget] = useState(entity);
+  useEffect(() => { setTarget(entity); }, [entity]);
+  const [draftType, setDraftType] = useState<string>('country');
+  const [draftId, setDraftId] = useState('');
+  const lockTarget = useCallback((type: string, id: string) => {
+    const clean = id.trim();
+    if (clean) setTarget({ type, id: clean, label: clean, properties: {} });
+  }, []);
+  /** The canvas has to be told its size; it does not follow the CSS box when the panel grows. */
+  const [size, setSize] = useState({ w: 480, h: 400 });
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 480, h: el.clientHeight || 400 }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const mergeGraph = useCallback((existing: GraphData, incoming: GraphData): GraphData => {
     const nodeMap = new Map<string, EntityNode>();
@@ -114,17 +141,17 @@ function EntityGraphPanel({ entity, onClose }: Props) {
   }, [expandedIds, mergeGraph]);
 
   useEffect(() => {
-    if (!entity) return;
+    if (!target) return;
     const root: EntityNode = {
-      id: `${entity.type}:${entity.id}`, label: entity.label || entity.id,
-      type: entity.type as EntityNode['type'], properties: entity.properties,
+      id: `${target.type}:${target.id}`, label: target.label || target.id,
+      type: target.type as EntityNode['type'], properties: target.properties,
     };
     setGraphData({ nodes: [root], links: [] });
     setExpandedIds(new Set());
     setSelectedNode(root);
     setError(null);
-    expandEntity(entity.type, entity.id, entity.properties);
-  }, [entity]); // eslint-disable-line react-hooks/exhaustive-deps
+    expandEntity(target.type, target.id, target.properties);
+  }, [target]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNodeClick = useCallback((node: any) => {
     const n = node as EntityNode;
@@ -212,7 +239,8 @@ function EntityGraphPanel({ entity, onClose }: Props) {
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className="fixed top-0 right-0 h-full z-[500] flex flex-col glass-panel"
         style={{
-          width: expanded ? '60vw' : '480px', maxWidth: '90vw',
+          width: expanded ? 'calc(100vw - 56px)' : '480px', maxWidth: 'calc(100vw - 56px)',
+          transition: 'width 0.38s cubic-bezier(0.2, 0.8, 0.2, 1), right 0.38s cubic-bezier(0.2, 0.8, 0.2, 1)',
           borderLeft: '1px solid var(--border-primary)',
           borderRight: 'none',
           borderTop: 'none',
@@ -265,19 +293,28 @@ function EntityGraphPanel({ entity, onClose }: Props) {
           </div>
         </div>
 
-        {/* ROOT LABEL */}
-        {entity ? (
-          <div className="px-6 py-2 border-b border-[var(--border-primary)] flex items-center gap-3 bg-black/20 relative z-20">
-            {(() => { const I = TYPE_ICONS[entity.type] || Globe; return <I className="w-4 h-4" style={{ color: TYPE_COLORS[entity.type] }} />; })()}
-            <span className="text-xs font-mono text-white/90 tracking-widest uppercase truncate">{entity.label || entity.id}</span>
-            <span className="text-[10px] font-mono text-[var(--gold-primary)]/70 ml-auto tracking-widest">{graphData.nodes.length} NODES // {graphData.links.length} LINKS</span>
-          </div>
-        ) : (
-          <div className="px-6 py-3 border-b border-[var(--border-primary)] flex items-center gap-3 bg-black/20 relative z-20">
-            <Network className="w-4 h-4 text-[var(--gold-primary)]/50 animate-osiris-pulse" />
-            <span className="text-xs font-mono text-[var(--gold-primary)]/50 tracking-widest uppercase truncate typewriter">[ AWAITING TARGET LOCK ]</span>
-          </div>
-        )}
+        {/* TARGET */}
+        <form
+          onSubmit={e => { e.preventDefault(); lockTarget(draftType, draftId); }}
+          className="px-6 py-2 border-b border-[var(--border-primary)] flex items-center gap-2 bg-black/20 relative z-20"
+        >
+          {(() => { const t = target?.type ?? draftType; const I = TYPE_ICONS[t] || Network; return <I className="w-4 h-4 shrink-0" style={{ color: TYPE_COLORS[t] || 'var(--gold-primary)' }} />; })()}
+          <select
+            value={draftType} onChange={e => setDraftType(e.target.value)}
+            className="bg-black/40 border border-[var(--border-primary)] rounded px-1.5 py-1 text-[11px] font-mono text-white/90 uppercase outline-none focus:border-[var(--gold-primary)]/60"
+          >
+            {TARGET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input
+            value={draftId} onChange={e => setDraftId(e.target.value)}
+            placeholder={target ? `${target.label || target.id} — type another target` : 'Country, IP, callsign, vessel…'}
+            className="min-w-0 flex-1 bg-black/40 border border-[var(--border-primary)] rounded px-2 py-1 text-[12px] font-mono text-white placeholder:text-white/50 outline-none focus:border-[var(--gold-primary)]/60"
+          />
+          <button type="submit" className="flex items-center gap-1 rounded border border-[var(--gold-primary)]/40 bg-[var(--gold-primary)]/10 px-2 py-1 text-[10px] font-mono tracking-widest text-[var(--gold-primary)] hover:bg-[var(--gold-primary)]/20 transition-colors">
+            <Search className="w-3 h-3" /> LOCK
+          </button>
+          <span className="hidden sm:block text-[10px] font-mono text-[var(--gold-primary)]/80 tracking-widest whitespace-nowrap">{graphData.nodes.length} NODES // {graphData.links.length} LINKS</span>
+        </form>
 
         {/* ERROR */}
         {error && (
@@ -294,8 +331,12 @@ function EntityGraphPanel({ entity, onClose }: Props) {
               ref={graphRef} graphData={graphData} nodeId="id"
               nodeCanvasObject={paintNode} linkCanvasObject={paintLink}
               onNodeClick={handleNodeClick} backgroundColor="rgba(0,0,0,0)"
-              width={containerRef.current?.clientWidth || 480}
-              height={containerRef.current?.clientHeight || 400}
+              nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
+                ctx.fillStyle = color; ctx.beginPath(); ctx.arc(node.x, node.y, 9, 0, 2 * Math.PI); ctx.fill();
+              }}
+              onNodeHover={(node: any) => { if (containerRef.current) containerRef.current.style.cursor = node ? 'pointer' : 'default'; }}
+              width={size.w}
+              height={size.h}
               d3AlphaDecay={0.05} d3VelocityDecay={0.4} cooldownTicks={100}
               linkDirectionalParticles={1} linkDirectionalParticleWidth={1.5}
               linkDirectionalParticleSpeed={0.003}
@@ -303,8 +344,19 @@ function EntityGraphPanel({ entity, onClose }: Props) {
             />
           )}
           {graphData.nodes.length === 0 && !loading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-xs font-mono text-white/30">No graph data yet</span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
+              <Network className="w-8 h-8 text-[var(--gold-primary)]/60" />
+              <p className="text-[12px] font-mono text-white/80 leading-relaxed max-w-[340px]">
+                Pick a target above, or start from one of these. Click any node afterwards to open it and pull in what is linked to it.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {SUGGESTIONS.map(sg => (
+                  <button key={sg.id} onClick={() => { setDraftType(sg.type); setDraftId(''); lockTarget(sg.type, sg.id); }}
+                    className="rounded-full border border-[var(--gold-primary)]/40 bg-[var(--gold-primary)]/10 px-3 py-1 text-[11px] font-mono text-[var(--gold-primary)] hover:bg-[var(--gold-primary)]/25 transition-colors">
+                    {sg.id}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -360,7 +412,7 @@ function EntityGraphPanel({ entity, onClose }: Props) {
           {Object.entries(TYPE_COLORS).map(([t, c]) => (
             <div key={t} className="flex items-center gap-1">
               <div className="w-2 h-2 rounded-full" style={{ background: c }} />
-              <span className="text-[8px] font-mono text-white/40 uppercase">{t}</span>
+              <span className="text-[8px] font-mono text-white/70 uppercase">{t}</span>
             </div>
           ))}
         </div>

@@ -315,14 +315,10 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
       initial={{ x: -60, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ type: 'spring', damping: 30, stiffness: 200, delay: 2.8 }}
-      className="absolute top-0 left-0 h-full w-[48px] flex flex-col items-center pt-24 pb-6 z-50 pointer-events-auto"
-      style={{
-        background: 'rgba(0,0,0,0.15)',
-        backdropFilter: 'blur(24px) saturate(1.2)',
-        WebkitBackdropFilter: 'blur(24px) saturate(1.2)',
-      }}
+      className="absolute left-0 top-[72px] bottom-[44px] w-12 flex items-center justify-center z-50 pointer-events-none"
     >
-      <div className="flex-1 flex flex-col items-center gap-1">
+      {/* Same glass pill as the right tool rail: 48px wide, min(568px,100%) tall, vertically centred. */}
+      <div className="w-12 rounded-full bg-black/40 backdrop-blur-sm border border-white/5 flex flex-col items-center justify-center gap-1 py-2 pointer-events-auto">
         {(() => {
           const rail = arcgisLayers?.find(l => l.id === 'gogf-railways-14');
           if (!rail) return null;
@@ -336,7 +332,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
               <TrainFront
                 className="transition-all duration-300"
                 style={{
-                  width: 16, height: 16,
+                  width: 20, height: 20,
                   color: rail.visible ? rail.color : 'rgba(255,255,255,0.2)',
                   filter: rail.visible ? `drop-shadow(0 0 4px ${rail.color}80)` : 'none',
                 }}
@@ -366,8 +362,8 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
                 <Icon
                   className="transition-all duration-300"
                   style={{
-                    width: 16,
-                    height: 16,
+                    width: 20,
+                    height: 20,
                     color: groupActive
                       ? 'rgba(255,255,255,0.7)'
                       : isHovered
@@ -468,7 +464,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
               <Database
                 className="transition-all duration-300"
                 style={{
-                  width: 16, height: 16,
+                  width: 20, height: 20,
                   color: arcgisLayers.some(l => l.visible)
                     ? 'rgba(212,175,55,0.85)'
                     : hoveredGroup === '__arcgis__' ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.2)',
@@ -523,32 +519,8 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
             </AnimatePresence>
           </div>
         )}
+
       </div>
-
-      {/* Subtle separator */}
-      <div className="w-5 h-px bg-white/[0.06] my-2" />
-
-      {/* Ghost Protocol Toggle */}
-      {setTheme && (
-        <button
-          onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')}
-          className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-500 cursor-pointer"
-          style={{
-            background: theme === 'ghost' ? 'rgba(179, 136, 255, 0.1)' : 'transparent',
-          }}
-          title="Ghost Protocol"
-        >
-          <Ghost
-            className="transition-all duration-500"
-            style={{
-              width: 15,
-              height: 15,
-              color: theme === 'ghost' ? '#B388FF' : 'rgba(255,255,255,0.15)',
-              filter: theme === 'ghost' ? 'drop-shadow(0 0 6px rgba(179, 136, 255, 0.5))' : 'none',
-            }}
-          />
-        </button>
-      )}
     </motion.div>
   );
 }
