@@ -7,6 +7,7 @@ import { useLocale } from '@/lib/LocaleProvider';
 import {
   buildChain, type MainshockForecast, type ForecastMethod, type ChainStep, type ChainStage,
 } from '@/lib/predictionChain';
+import WildfireView, { wildfireSteps, type WildfireSummary } from '@/components/WildfireView';
 import { FORECAST_DOMAINS, FORECAST_STATUS_STYLE } from '@/lib/forecastDomains';
 
 // Standing forecasts, each one openable down to the arithmetic that produced it.
@@ -110,6 +111,19 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
   // drawer. Keep it visible so the operator sees open/awaiting/scored rows.
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [dom, setDom] = useState<'seismic' | 'wildfire'>('seismic');
+  const [wf, setWf] = useState<WildfireSummary | null>(null);
+  const [wfErr, setWfErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch('/api/predictions/wildfire')
+      .then(r => { if (!r.ok) throw new Error(r.status === 404 ? tr('pred.gated') : `HTTP ${r.status}`); return r.json(); })
+      .then(j => { if (alive) { setWf(j); setWfErr(null); } })
+      .catch(e => { if (alive) setWfErr(e instanceof Error ? e.message : String(e)); });
+    load();
+    const iv = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [tr]);
 
   const width = (expanded ? 1120 : 860) + (openChain ? CHAIN_W : 0);
   useEffect(() => { onWidthChange?.(width); }, [width, onWidthChange]);
@@ -244,6 +258,23 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
             </button>
           </div>
           </div>
+          {dom === 'wildfire' ? (() => {
+            const ws = wildfireSteps(wf);
+            const items = [
+              { n: '1', label: 'FORECAST', value: ws.next, sub: 'until the next forecast' },
+              { n: '2', label: 'WATCHING', value: `${ws.watching}`, sub: 'burning areas followed now' },
+              { n: '3', label: 'TRACK RECORD', value: ws.record, sub: ws.recordSub },
+            ];
+            return (<>
+              <p className="mb-3 text-[12px] leading-relaxed text-[#e4e8ef]"><span className="text-white">What is predicted:</span> whether a burning area seen by satellite keeps burning 1 to 3 days later. Each forecast is checked against the next satellite passes.</p>
+              <div className="grid grid-cols-3 gap-2">{items.map(st => (
+                <div key={st.label} className="min-w-0 rounded-lg border border-white/10 bg-[#0d1420] px-3 py-3">
+                  <div className="text-[10px] tracking-[.18em] text-white">{st.n} {st.label}</div>
+                  <div className="mt-2 text-[24px] leading-none tabular-nums text-white">{st.value}</div>
+                  <div className="mt-1.5 text-[10px] leading-snug text-[#c3c8d2]">{st.sub}</div>
+                </div>))}</div>
+            </>);
+          })() : (<>
           <p className="mb-3 text-[12px] leading-relaxed text-[#e4e8ef]">
             <span className="text-white">What is predicted:</span> how many earthquakes of magnitude 5 or more (aftershocks) will follow the biggest recent
             quakes within the next 7 days. Each forecast is checked against what really happened, and the track record below shows how often it held.
@@ -274,6 +305,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
               </div>
             );
           })()}
+          </>)}
         </div>
 
         <div className="shrink-0 border-b border-white/[0.08] bg-[#080c15] px-5 py-3">
@@ -283,8 +315,8 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
               const style = FORECAST_STATUS_STYLE[domain.status];
               const live = domain.status === 'LIVE_SCORED';
               return (
-                <div key={domain.id} title={`${domain.evidence} · next: ${domain.next}`}
-                  className={`min-w-0 rounded-lg border px-2.5 py-2 ${live ? 'border-[#00f5c4]/35 bg-[#0d1a1c]' : 'border-dashed border-white/15 bg-[#0d1420]'}`}>
+                <div key={domain.id} onClick={() => { if (domain.id === 'seismic' || domain.id === 'wildfire') setDom(domain.id); }} title={`${domain.evidence} · next: ${domain.next}`}
+                  className={`min-w-0 rounded-lg border px-2.5 py-2 ${live ? `cursor-pointer ${domain.id === dom ? 'border-[#00f5c4] bg-[#0d1a1c]' : 'border-[#00f5c4]/35 bg-[#0d1a1c]'}` : 'border-dashed border-white/15 bg-[#0d1420]'}`}>
                   <div className="flex items-center justify-between gap-1">
                     <span className="truncate text-[10px] tracking-wider text-white">{domain.label}</span>
                     <span className={`shrink-0 text-[8px] font-semibold ${style.className}`}>{live ? 'LIVE' : 'BUILDING'}</span>
@@ -299,7 +331,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
 
         {/* ── calibration line: over-coverage is a failure, and saying so here
             stops the scoreboard reading as a score to maximise ───────────── */}
-        {sb && sb.coverage !== null && sb.nominal_coverage && (
+        {dom === 'seismic' && sb && sb.coverage !== null && sb.nominal_coverage && (
           <div className="px-4 py-2 border-b border-white/[0.06] shrink-0 text-[9px] tabular-nums leading-relaxed text-[#c3c8d2]">
             {sb.coverage > sb.nominal_coverage + 0.15
               ? <span className="text-[#ffd166]">{tr('pred.overcovered')}</span>
@@ -311,7 +343,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
 
         {/* The audit table is deliberately above the selected forecast: this
             is a control center first, and a detail view second. */}
-        {showHistory && data && (
+        {dom === 'seismic' && showHistory && data && (
           <div className="absolute left-3 right-3 bottom-14 z-20 max-h-[52%] overflow-hidden rounded-xl border border-white/[0.14] bg-[#080c15] shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-[11px] tracking-[0.16em] text-white">TRACKED FORECASTS</div>
@@ -341,7 +373,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
         )}
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {!data && !error ? (
+          {dom === 'wildfire' ? <WildfireView w={wf} err={wfErr} /> : !data && !error ? (
             <div className="flex h-full items-center justify-center gap-2 px-6 text-[11px] text-[#c3c8d2]">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> {tr('pred.loading')}
             </div>

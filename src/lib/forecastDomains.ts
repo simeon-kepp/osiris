@@ -17,7 +17,7 @@ export interface ForecastDomain {
  */
 export const FORECAST_DOMAINS: ForecastDomain[] = [
   { id: 'seismic', label: 'SEISMIC', question: 'Will M5+ aftershocks follow the big quakes?', status: 'LIVE_SCORED', evidence: 'USGS ComCat · append-only scoring', next: 'Running. Issued every 6 hours and scored against USGS.' },
-  { id: 'wildfire', label: 'WILDFIRE', question: 'Will a burning area keep burning?', status: 'HISTORICAL_ONLY', evidence: 'NASA FIRMS / GDACS · historical record present', next: 'Needs a scoring rule: a detection cluster that persists for N days. The history is already stored.' },
+  { id: 'wildfire', label: 'WILDFIRE', question: 'Will a burning area keep burning?', status: 'LIVE_SCORED', evidence: 'NASA FIRMS MODIS 7-day feed · base rate from comparable fires', next: 'Scored 24–72 h after each forecast; first scores about 75 h after the first batch.' },
   { id: 'markets', label: 'MARKETS', question: 'Will price swings stay high?', status: 'BACKTESTED', evidence: 'Market history · backtest lane, not live-scored', next: 'Needs live issuing: the backtest runs, nothing is issued or scored yet.' },
   { id: 'weather', label: 'WEATHER', question: 'Will weather disrupt operations?', status: 'RESEARCH', evidence: 'ASOS / live weather · causal research lane', next: 'Needs a cause-and-effect model with an outcome we can check, for example flight delays.' },
   { id: 'space', label: 'SPACE WEATHER', question: 'Will a geomagnetic storm hit?', status: 'OBSERVATION_ONLY', evidence: 'NOAA SWPC · observation feed, scoring pending', next: 'Needs a threshold rule and scoring. The NOAA feed is already read.' },
