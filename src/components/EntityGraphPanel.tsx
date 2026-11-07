@@ -96,6 +96,12 @@ function EntityGraphPanel({ entity, onClose }: Props) {
   const [draftType, setDraftType] = useState<string>('country');
   const [draftId, setDraftId] = useState('');
   const [typeOpen, setTypeOpen] = useState(false);
+  useEffect(() => {
+    if (!typeOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setTypeOpen(false); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [typeOpen]);
   // Live starting points for the empty state; the static list below is only the fallback.
   const [groups, setGroups] = useState<{ title: string; items: { type: string; id: string; note: string }[] }[]>([]);
   useEffect(() => {

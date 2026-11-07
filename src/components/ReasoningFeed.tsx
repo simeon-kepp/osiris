@@ -207,7 +207,8 @@ export default function ReasoningFeed({ onClose, onInspect, offsetRight = 0, onW
             const isGuess = item.provenance === 'PREDICTED';
             return (
               <div key={`${item.title}-${i}`}
-                className={`px-4 py-2.5 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors ${isGuess ? 'bg-[#b388ff]/[0.04]' : ''}`}>
+                onClick={() => item.nodes[0] && onInspect?.(item.nodes[0])}
+                className={`px-4 py-2.5 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors ${item.nodes[0] && onInspect ? 'cursor-pointer' : ''} ${isGuess ? 'bg-[#b388ff]/[0.04]' : ''}`}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: st.dot }} />
                   <span className="text-[8px] tabular-nums tracking-widest text-[var(--text-muted)]">{st.label}</span>
@@ -216,14 +217,16 @@ export default function ReasoningFeed({ onClose, onInspect, offsetRight = 0, onW
                   )}
                   <span className="ml-auto text-[8px] tabular-nums text-[var(--text-muted)]">{item.score}</span>
                 </div>
-                <button
-                  onClick={() => item.nodes[0] && onInspect?.(item.nodes[0])}
+                <div
                   className="block w-full text-left text-[11px] tabular-nums text-[var(--text-primary)] leading-snug hover:text-[var(--cyan-primary)] transition-colors">
                   {item.title}
-                </button>
+                </div>
                 <p className="mt-1 text-[11px] text-[var(--text-muted)] leading-relaxed">
                   {plainDetail(item)}
                 </p>
+                {item.nodes[0] && onInspect && (
+                  <span className="mt-1 inline-block text-[9px] tracking-wide text-[var(--cyan-primary)]/80">show in graph →</span>
+                )}
                 {isGuess && (
                   // Spelled out on every single entry, not just in the legend.
                   // A reader scrolling a feed does not carry the legend with them.

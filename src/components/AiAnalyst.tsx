@@ -316,6 +316,34 @@ async function fetchGraphContext(focusNode?: string): Promise<GraphContext | und
   }
 }
 
+/** Turns pipe tables (| a | b |) into HTML tables. Input is already HTML-escaped; cell text then goes through the
+ *  same inline rules (bold, links) as the rest of the answer because the result flows back into that chain. */
+function tables(text: string): string {
+  const isRow = (l: string) => /^\s*\|.*\|\s*$/.test(l);
+  const isSep = (l: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  const cells = (l: string) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+  const lines = text.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!isRow(lines[i])) { out.push(lines[i]); continue; }
+    let j = i;
+    while (j < lines.length && isRow(lines[j])) j++;
+    const block = lines.slice(i, j);
+    const hasHead = block.length > 1 && isSep(block[1]);
+    const head = hasHead ? cells(block[0]) : null;
+    const body = block.slice(hasHead ? 2 : 0).filter(l => !isSep(l)).map(cells);
+    const th = 'class="px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--gold-primary)] border-b border-[var(--border-secondary)]"';
+    const td = 'class="px-2 py-1 align-top border-b border-white/5"';
+    out.push(
+      '<div class="my-2 overflow-x-auto"><table class="w-full border-collapse text-[11px]">' +
+      (head ? '<thead><tr>' + head.map(c => `<th ${th}>${c}</th>`).join('') + '</tr></thead>' : '') +
+      '<tbody>' + body.map(r => '<tr>' + r.map(c => `<td ${td}>${c}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>'
+    );
+    i = j - 1;
+  }
+  return out.join('\n');
+}
+
 /** Render markdown-lite: bold, headers, bullet points, links */
 function renderMarkdown(text: string): string {
   // Basic HTML escape to prevent XSS
@@ -326,7 +354,7 @@ function renderMarkdown(text: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
-  return escaped
+  return tables(escaped)
     // Web answers cite as [site](url). Only http(s) after escaping, so neither
     // javascript: nor an attribute break-out can get through.
     .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-[var(--cyan-primary,#00e5ff)] underline underline-offset-2 hover:opacity-80">$1</a>')
