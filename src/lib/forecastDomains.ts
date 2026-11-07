@@ -20,7 +20,7 @@ export const FORECAST_DOMAINS: ForecastDomain[] = [
   { id: 'wildfire', label: 'WILDFIRE', question: 'Will a burning area keep burning?', status: 'LIVE_SCORED', evidence: 'NASA FIRMS MODIS 7-day feed · base rate from comparable fires', next: 'Scored 24–72 h after each forecast; first scores about 75 h after the first batch.' },
   { id: 'markets', label: 'MARKETS', question: 'Will price swings stay high?', status: 'LIVE_SCORED', evidence: 'Yahoo daily closes · pooled base rate over 24 instruments', next: 'Scored after 5 more trading days; first scores about a week after the first batch.' },
   { id: 'weather', label: 'WEATHER', question: 'Will weather disrupt operations?', status: 'RESEARCH', evidence: 'ASOS / live weather · causal research lane', next: 'Needs a cause-and-effect model with an outcome we can check, for example flight delays.' },
-  { id: 'space', label: 'SPACE WEATHER', question: 'Will a geomagnetic storm hit?', status: 'OBSERVATION_ONLY', evidence: 'NOAA SWPC · observation feed, scoring pending', next: 'Needs a threshold rule and scoring. The NOAA feed is already read.' },
+  { id: 'space', label: 'SPACE WEATHER', question: 'Will a geomagnetic storm hit?', status: 'LIVE_SCORED', evidence: 'GFZ Potsdam Kp index · 3-year base rate by recent activity', next: 'Scored 72 h after each forecast; first scores about 3 days after the first one.' },
 ];
 
 export const FORECAST_STATUS_STYLE: Record<ForecastDomainStatus, { label: string; className: string }> = {
