@@ -127,6 +127,27 @@ function resolveRegion(name?: string): { key: string; box: [number, number, numb
   return hit ? { key: hit, box: REGIONS[hit] } : { key: 'global', box: REGIONS.global };
 }
 
+function tally(rows: Row[], key: (r: Row) => string | undefined, top = 6): string {
+  const m = new Map<string, number>();
+  for (const r of rows) { const k = key(r); if (k) m.set(k, (m.get(k) ?? 0) + 1); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).map(([k, n]) => `${k} ${n}`).join(', ');
+}
+
+/** GDELT is hundreds of coded events, mostly talk. Count them by kind and country, then show the
+ *  conflict ones that the most outlets reported, which is what an operator asks for. */
+function gdeltSummary(rows: Row[], limit: number): string[] {
+  const kinds = tally(rows, r => String(r.quad_label || ''), 4);
+  const countries = tally(rows, r => String(r.country || ''), 8);
+  const conflict = rows
+    .filter(r => num(r.quad) !== null && (num(r.quad) as number) >= 3)
+    .sort((a, b) => (num(b.articles) ?? 0) - (num(a.articles) ?? 0));
+  const out = [`  by kind: ${kinds}`, `  by country code: ${countries}`, `  conflict events: ${conflict.length}; most reported:`];
+  for (const r of conflict.slice(0, limit)) {
+    out.push(`  - ${String(r.name || '').slice(0, 70)} | ${r.quad_label} code ${r.event_code} | goldstein ${r.goldstein} | ${r.articles} articles | ${String(r.url || '').slice(0, 110)}`);
+  }
+  return out;
+}
+
 async function readLayer(name: string, region: { key: string; box: [number, number, number, number] }, hours: number, limit: number): Promise<string> {
   const def = LAYERS[name];
   if (!def) return `Unknown layer "${name}". Layers: ${Object.keys(LAYERS).join(', ')}.`;
@@ -140,8 +161,12 @@ async function readLayer(name: string, region: { key: string; box: [number, numb
   const recent = inBox.filter(r => { const t = timeOf(r); return t === null || t >= cutoff; });
   const timed = recent.filter(r => timeOf(r) !== null).length;
   recent.sort((a, b) => (timeOf(b) ?? 0) - (timeOf(a) ?? 0));
+  if (name === 'gdelt') {
+    return [`${def.label}: ${recent.length} in ${region.key}, last ${hours} h (of ${rows.length} loaded)`, ...gdeltSummary(recent, limit)].join('\n');
+  }
+  const split = recent.length > 40 && name !== 'fires' ? `\n  split: ${tally(recent, r => String(r.type || r.category || r.country || ''), 6)}` : '';
   const head = `${def.label}: ${recent.length} in ${region.key}, last ${hours} h (of ${rows.length} loaded${timed < recent.length ? `; ${recent.length - timed} without a timestamp` : ''})`;
-  return [head, ...recent.slice(0, limit).map(r => `  - ${line(r)}`)].join('\n');
+  return [head + split, ...recent.slice(0, limit).map(r => `  - ${line(r)}`)].join('\n');
 }
 
 export const TOOL_HELP = `## TOOLS
