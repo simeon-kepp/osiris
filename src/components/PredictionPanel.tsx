@@ -276,9 +276,25 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
           })()}
         </div>
 
-        <div className="shrink-0 border-b border-white/[0.08] bg-[#080c15] px-5 py-2 text-[10px] leading-relaxed text-[#c3c8d2]">
-          <span className="text-[#00f5c4]">Live and scored: earthquakes.</span>{' '}
-          Still in research, not scored: wildfire · markets · weather · space weather.
+        <div className="shrink-0 border-b border-white/[0.08] bg-[#080c15] px-5 py-3">
+          <div className="mb-2 text-[10px] tracking-[.16em] text-white">WHAT DINGIR FORECASTS</div>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+            {FORECAST_DOMAINS.map(domain => {
+              const style = FORECAST_STATUS_STYLE[domain.status];
+              const live = domain.status === 'LIVE_SCORED';
+              return (
+                <div key={domain.id} title={`${domain.evidence} · next: ${domain.next}`}
+                  className={`min-w-0 rounded-lg border px-2.5 py-2 ${live ? 'border-[#00f5c4]/35 bg-[#0d1a1c]' : 'border-dashed border-white/15 bg-[#0d1420]'}`}>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="truncate text-[10px] tracking-wider text-white">{domain.label}</span>
+                    <span className={`shrink-0 text-[8px] font-semibold ${style.className}`}>{live ? 'LIVE' : 'BUILDING'}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] leading-snug text-[#e4e8ef]">{domain.question}</div>
+                  <div className="mt-1 line-clamp-3 text-[9px] leading-snug text-[#c3c8d2]">{domain.next}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* ── calibration line: over-coverage is a failure, and saying so here
@@ -347,6 +363,12 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                   return (
                     <div className="flex items-baseline gap-3">
                       <span className="tabular-nums text-[26px] leading-none" style={{ color: probColour(pc) }}>{word}</span>
+                      {f.falsified_if && (
+                        <span title={f.falsified_if}
+                          className="inline-flex items-center gap-1 rounded border border-[#ff9f43]/40 px-1.5 py-0.5 text-[9px] text-[#ff9f43]">
+                          <AlertTriangle className="h-3 w-3" /> model off here
+                        </span>
+                      )}
                       <span className="text-[11px] text-[#e4e8ef]">
                         {pc >= 99 && pc < 100 ? pc.toFixed(1) : pc.toFixed(0)}% chance of at least one more M5+ aftershock near these quakes
                       </span>
@@ -367,12 +389,6 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                   <div className={`mt-2 text-[10px] font-bold tracking-widest ${f.within_95_interval ? 'text-[#00f5c4]' : 'text-[#ff6b6b]'}`}>
                     {f.within_95_interval ? 'HIT' : 'MISS'} · actual {f.actual_count ?? '—'} · scored {f.scored_at_utc?.replace('T', ' ').slice(0, 16) ?? '—'} UTC
                   </div>
-                )}
-                {f.falsified_if && (
-                  <p className="mt-2 text-[10px] leading-relaxed text-[#ff9f43]">
-                    <AlertTriangle className="inline w-3 h-3 mr-1 -mt-0.5" />
-                    <span title={f.falsified_if}>The real count fell outside the expected range, so the model is off for this window. Hover for the technical reason.</span>
-                  </p>
                 )}
               </div>
 
