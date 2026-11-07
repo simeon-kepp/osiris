@@ -265,9 +265,10 @@ function EntityGraphPanel({ entity, onClose }: Props) {
           
           .typewriter {
             display: inline-block; overflow: hidden; white-space: nowrap; border-right: 2px solid var(--gold-primary);
-            animation: typing 0.8s steps(30, end) forwards, blink-caret 0.5s step-end infinite;
+            animation: typing 0.8s steps(30, end) forwards, blink-caret 0.5s step-end 2, caret-off 0s 1s forwards;
           }
           @keyframes typing { from { width: 0 } to { width: 100% } }
+          @keyframes caret-off { to { border-color: transparent } }
           @keyframes blink-caret { from, to { border-color: transparent } 50% { border-color: var(--gold-primary) } }
         `}</style>
         

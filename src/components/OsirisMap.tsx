@@ -757,9 +757,9 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
     // ── POPUP HELPER ──
     const popup = (coords: any, html: string) => {
       popupRef.current?.remove();
-      const pop = new maplibregl.Popup({ closeButton: true, maxWidth: '560px', offset: 14 }).setLngLat(coords).setHTML(html).addTo(map);
+      const pop = new maplibregl.Popup({ closeButton: true, maxWidth: '460px', offset: 14 }).setLngLat(coords).setHTML(html).addTo(map);
       popupRef.current = pop;
-      // The popup is zoomed 1.3x in CSS, which MapLibre does not see when it picks
+      // The popup is zoomed 1.12x in CSS, which MapLibre does not see when it picks
       // an anchor, so a tall one can start above the screen. Nudge the map until
       // the whole card, header included, is inside the canvas.
       requestAnimationFrame(() => {
