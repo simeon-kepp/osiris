@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { withLock, appendJsonl, lowerBound } from './forecast-io';
 
 /**
  * Market volatility persistence forecast.
@@ -140,7 +141,7 @@ export async function readRecord(): Promise<{ issues: MarketForecast[]; scores: 
 
 async function append(rows: object[]) {
   await fs.mkdir(DATASETS_DIR, { recursive: true });
-  await fs.appendFile(MARKET_FILE, rows.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  await appendJsonl(MARKET_FILE, rows as Array<{ type?: string; id?: string }>);
 }
 
 export async function issueForecasts(now = Date.now()): Promise<number> {
@@ -207,19 +208,13 @@ export async function summary(now = Date.now()) {
 /** One cycle: score what closed, then issue for any instrument that is hot and has no forecast for its latest bar yet. */
 export async function runCycle(): Promise<void> {
   try {
-    const raw = await fs.readFile(LOCK_FILE, 'utf8').catch(() => '');
-    const [pid, at] = raw.split(':').map(Number);
-    let alive = false;
-    if (pid && Date.now() - at < 15 * 60_000) { try { process.kill(pid, 0); alive = pid !== process.pid; } catch { alive = false; } }
-    if (alive) return;
     await fs.mkdir(DATASETS_DIR, { recursive: true });
-    await fs.writeFile(LOCK_FILE, `${process.pid}:${Date.now()}`);
-    const scored = await scoreDue();
-    const issued = await issueForecasts();
-    if (scored || issued) console.log(`[DINGIR] market forecast cycle: scored ${scored}, issued ${issued}`);
+    await withLock(LOCK_FILE, async () => {
+      const scored = await scoreDue();
+      const issued = await issueForecasts();
+      if (scored || issued) console.log(`[DINGIR] market forecast cycle: scored ${scored}, issued ${issued}`);
+    });
   } catch (e) {
     console.warn('[DINGIR] market forecast cycle failed:', e instanceof Error ? e.message : e);
-  } finally {
-    await fs.rm(LOCK_FILE, { force: true }).catch(() => undefined);
   }
 }

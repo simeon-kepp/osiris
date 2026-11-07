@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { withLock, appendJsonl, lowerBound } from './forecast-io';
 
 /**
  * Geomagnetic storm forecast.
@@ -50,10 +51,15 @@ async function loadKp(now: number): Promise<Kp[]> {
 export const bandOf = (max24: number) => (max24 >= STORM ? 'storm' : max24 >= 4 ? 'active' : 'quiet');
 const BAND_TEXT: Record<string, string> = { storm: 'a storm (Kp 5+) in the last 24 h', active: 'active (Kp 4) in the last 24 h', quiet: 'quiet (Kp below 4) in the last 24 h' };
 
-function maxIn(rows: Kp[], from: number, to: number): number {
+function maxIn(rows: Kp[], from: number, to: number, ts: number[] = rows.map(r => r.t)): number {
   let m = -1;
-  for (const r of rows) if (r.t >= from && r.t < to && r.kp > m) m = r.kp;
+  for (let i = lowerBound(ts, from); i < rows.length && rows[i].t < to; i++) if (rows[i].kp > m) m = rows[i].kp;
   return m;
+}
+
+function countIn(rows: Kp[], from: number, to: number): number {
+  const ts = rows.map(r => r.t);
+  return lowerBound(ts, to) - lowerBound(ts, from);
 }
 
 export function baseRates(rows: Kp[]) {
@@ -62,9 +68,10 @@ export function baseRates(rows: Kp[]) {
   const first = rows[0].t + 24 * HOUR;
   const last = rows[rows.length - 1].t + STEP - WINDOW_H * HOUR;
   const idx = new Map(rows.map((r, i) => [r.t, i]));
+  const ts = rows.map(r => r.t);
   for (let t = Math.ceil(first / (6 * HOUR)) * 6 * HOUR; t <= last; t += 6 * HOUR) {
-    const m24 = maxIn(rows, t - 24 * HOUR, t);
-    const mNext = maxIn(rows, t, t + WINDOW_H * HOUR);
+    const m24 = maxIn(rows, t - 24 * HOUR, t, ts);
+    const mNext = maxIn(rows, t, t + WINDOW_H * HOUR, ts);
     if (m24 < 0 || mNext < 0 || !idx.has(t)) continue;
     const b = out[bandOf(m24)];
     b.n++;
@@ -96,7 +103,7 @@ export async function readRecord(): Promise<{ issues: SpaceForecast[]; scores: M
 
 async function append(rows: object[]) {
   await fs.mkdir(DATASETS_DIR, { recursive: true });
-  await fs.appendFile(SPACE_FILE, rows.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  await appendJsonl(SPACE_FILE, rows as Array<{ type?: string; id?: string }>);
 }
 
 export async function issueForecasts(now = Date.now()): Promise<number> {
@@ -137,6 +144,8 @@ export async function scoreDue(now = Date.now()): Promise<number> {
     const [from, to] = f.window_utc.map(Date.parse);
     const m = maxIn(rows, from, to);
     if (m < 0) continue;
+    // GFZ publishes with a lag. A window the data does not fully cover would score a storm as "No" for good.
+    if (rows[rows.length - 1].t + STEP < to || countIn(rows, from, to) < Math.floor((WINDOW_H / 3) * 0.9)) continue;
     out.push({ type: 'score', id: f.id, scored_utc: new Date(now).toISOString(), storm: m >= STORM, kp_max_window: m });
   }
   if (out.length) await append(out);
@@ -163,22 +172,16 @@ export async function summary(now = Date.now()) {
 
 export async function runCycle(): Promise<void> {
   try {
-    const raw = await fs.readFile(LOCK_FILE, 'utf8').catch(() => '');
-    const [pid, at] = raw.split(':').map(Number);
-    let alive = false;
-    if (pid && Date.now() - at < 15 * 60_000) { try { process.kill(pid, 0); alive = pid !== process.pid; } catch { alive = false; } }
-    if (alive) return;
     await fs.mkdir(DATASETS_DIR, { recursive: true });
-    await fs.writeFile(LOCK_FILE, `${process.pid}:${Date.now()}`);
-    const scored = await scoreDue();
-    const { issues } = await readRecord();
-    const last = issues.length ? Date.parse(issues[issues.length - 1].issued_utc) : 0;
-    let issued = 0;
-    if (Date.now() - last >= ISSUE_EVERY_H * HOUR) issued = await issueForecasts();
-    if (scored || issued) console.log(`[DINGIR] space forecast cycle: scored ${scored}, issued ${issued}`);
+    await withLock(LOCK_FILE, async () => {
+      const scored = await scoreDue();
+      const { issues } = await readRecord();
+      const last = issues.length ? Date.parse(issues[issues.length - 1].issued_utc) : 0;
+      let issued = 0;
+      if (Date.now() - last >= ISSUE_EVERY_H * HOUR) issued = await issueForecasts();
+      if (scored || issued) console.log(`[DINGIR] space forecast cycle: scored ${scored}, issued ${issued}`);
+    });
   } catch (e) {
     console.warn('[DINGIR] space forecast cycle failed:', e instanceof Error ? e.message : e);
-  } finally {
-    await fs.rm(LOCK_FILE, { force: true }).catch(() => undefined);
   }
 }

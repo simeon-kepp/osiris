@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { withLock, appendJsonl, lowerBound } from './forecast-io';
 
 /**
  * Gale forecast for operations in 16 cities.
@@ -54,18 +55,25 @@ function toHourly(j: Awaited<ReturnType<typeof getJson>>): Hourly {
   }
   return { t, g };
 }
+// Hourly arrays are ascending, so a window is found by bisection instead of a scan of two years of hours.
 function maxIn(h: Hourly, from: number, to: number): number {
   let m = -1;
-  for (let i = 0; i < h.t.length; i++) if (h.t[i] >= from && h.t[i] < to && h.g[i] > m) m = h.g[i];
+  for (let i = lowerBound(h.t, from); i < h.t.length && h.t[i] < to; i++) if (h.g[i] > m) m = h.g[i];
   return m;
+}
+function countIn(h: Hourly, from: number, to: number): number {
+  return lowerBound(h.t, to) - lowerBound(h.t, from);
 }
 
 let histCache: { at: number; rates: Record<string, { n: number; hits: number }> } | null = null;
+let histFailAt = 0;
 async function baseRates(now: number) {
   if (histCache && now - histCache.at < 24 * HOUR) return histCache.rates;
+  if (now - histFailAt < 30 * 60_000) throw new Error('history fetch failed recently, backing off'); // do not re-pull two years x 16 cities every tick
   const end = new Date(now - 3 * 24 * HOUR).toISOString().slice(0, 10);
   const start = new Date(now - 2 * 365 * 24 * HOUR).toISOString().slice(0, 10);
   const rates: Record<string, { n: number; hits: number }> = { calm: { n: 0, hits: 0 }, breezy: { n: 0, hits: 0 }, strong: { n: 0, hits: 0 } };
+  try {
   for (let i = 0; i < CITIES.length; i += 4) {
     const got = await Promise.all(CITIES.slice(i, i + 4).map(async c => toHourly(await getJson(
       `https://archive-api.open-meteo.com/v1/archive?latitude=${c.lat}&longitude=${c.lng}&start_date=${start}&end_date=${end}&hourly=wind_gusts_10m&timezone=UTC`))));
@@ -81,6 +89,7 @@ async function baseRates(now: number) {
       }
     }
   }
+  } catch (e) { histFailAt = now; throw e; }
   histCache = { at: now, rates };
   return rates;
 }
@@ -107,7 +116,7 @@ export async function readRecord(): Promise<{ issues: WeatherForecast[]; scores:
 }
 async function append(rows: object[]) {
   await fs.mkdir(DATASETS_DIR, { recursive: true });
-  await fs.appendFile(WEATHER_FILE, rows.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  await appendJsonl(WEATHER_FILE, rows as Array<{ type?: string; id?: string }>);
 }
 
 const recent = (c: { lat: number; lng: number }) =>
@@ -118,13 +127,17 @@ export async function issueForecasts(now = Date.now()): Promise<number> {
   const issued = new Date(now).toISOString();
   const start = Math.floor(now / HOUR) * HOUR;
   const hot: Array<{ c: typeof CITIES[number]; m24: number }> = [];
+  let failed = 0;
   for (let i = 0; i < CITIES.length; i += 4) {
-    const got = await Promise.all(CITIES.slice(i, i + 4).map(async c => ({ c, h: await recent(c) })));
-    for (const { c, h } of got) {
-      const m24 = maxIn(h, start - 24 * HOUR, start + HOUR);
+    const got = await Promise.allSettled(CITIES.slice(i, i + 4).map(async c => ({ c, h: await recent(c) })));
+    for (const g of got) {
+      if (g.status !== 'fulfilled') { failed++; continue; } // one slow city must not cost the other fifteen
+      const { c, h } = g.value;
+      const m24 = maxIn(h, start - 24 * HOUR, start);
       if (m24 >= MIN_STATE) hot.push({ c, m24 });
     }
   }
+  if (failed === CITIES.length) throw new Error('Open-Meteo unreachable for every city');
   const rows: WeatherForecast[] = hot.sort((a, b) => b.m24 - a.m24).slice(0, MAX_ISSUE).map(({ c, m24 }) => {
     const b = bandOf(m24), r = rates[b];
     return {
@@ -154,6 +167,7 @@ export async function scoreDue(now = Date.now()): Promise<number> {
     if (!h) { h = await recent({ lat: f.lat, lng: f.lng }); cache.set(f.city, h); }
     const m = maxIn(h, from, to);
     if (m < 0) continue;
+    if (countIn(h, from, to) < Math.floor(WINDOW_H * 0.9)) continue; // gaps in the data would score a gale as "No" for good
     out.push({ type: 'score', id: f.id, scored_utc: new Date(now).toISOString(), gale: m >= GALE, gust_max_window: +m.toFixed(1) });
   }
   if (out.length) await append(out);
@@ -180,22 +194,16 @@ export async function summary(now = Date.now()) {
 
 export async function runCycle(): Promise<void> {
   try {
-    const raw = await fs.readFile(LOCK_FILE, 'utf8').catch(() => '');
-    const [pid, at] = raw.split(':').map(Number);
-    let alive = false;
-    if (pid && Date.now() - at < 15 * 60_000) { try { process.kill(pid, 0); alive = pid !== process.pid; } catch { alive = false; } }
-    if (alive) return;
     await fs.mkdir(DATASETS_DIR, { recursive: true });
-    await fs.writeFile(LOCK_FILE, `${process.pid}:${Date.now()}`);
-    const scored = await scoreDue();
-    const { issues } = await readRecord();
-    const last = issues.length ? Date.parse(issues[issues.length - 1].issued_utc) : 0;
-    let issued = 0;
-    if (Date.now() - last >= ISSUE_EVERY_H * HOUR) issued = await issueForecasts();
-    if (scored || issued) console.log(`[DINGIR] weather forecast cycle: scored ${scored}, issued ${issued}`);
+    await withLock(LOCK_FILE, async () => {
+      const scored = await scoreDue();
+      const { issues } = await readRecord();
+      const last = issues.length ? Date.parse(issues[issues.length - 1].issued_utc) : 0;
+      let issued = 0;
+      if (Date.now() - last >= ISSUE_EVERY_H * HOUR) issued = await issueForecasts();
+      if (scored || issued) console.log(`[DINGIR] weather forecast cycle: scored ${scored}, issued ${issued}`);
+    });
   } catch (e) {
     console.warn('[DINGIR] weather forecast cycle failed:', e instanceof Error ? e.message : e);
-  } finally {
-    await fs.rm(LOCK_FILE, { force: true }).catch(() => undefined);
   }
 }

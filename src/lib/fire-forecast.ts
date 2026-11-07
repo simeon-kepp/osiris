@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { withLock, appendJsonl, lowerBound } from './forecast-io';
 
 /**
  * Wildfire persistence forecast.
@@ -126,7 +127,7 @@ export async function readRecord(): Promise<{ issues: FireForecast[]; scores: Ma
 
 async function append(rows: object[]) {
   await fs.mkdir(DATASETS_DIR, { recursive: true });
-  await fs.appendFile(FIRE_FILE, rows.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  await appendJsonl(FIRE_FILE, rows as Array<{ type?: string; id?: string }>);
 }
 
 export async function issueForecasts(now = Date.now()): Promise<number> {
@@ -172,11 +173,14 @@ export async function scoreDue(now = Date.now()): Promise<number> {
   const due = issues.filter(f => !scores.has(f.id) && Date.parse(f.window_utc[1]) + 3 * HOUR <= now);
   if (!due.length) return 0;
   const dets = await loadDetections();
+  const newest = dets.reduce((m, d) => Math.max(m, d.t), 0);
   const out: FireScore[] = [];
   for (const f of due) {
     const [from, to] = f.window_utc.map(Date.parse);
     // The 7-day file only reaches back 7 days; a window older than that cannot be checked honestly.
     if (from < now - 7 * 24 * HOUR) continue;
+    // A feed that stops before the window ends would score a burning cell as "No", and the record is append-only.
+    if (newest < to) continue;
     const hits = dets.filter(d => d.cell === f.cell && d.t >= from && d.t <= to).length;
     out.push({ type: 'score', id: f.id, scored_utc: new Date(now).toISOString(), kept_burning: hits > 0, detections_in_window: hits });
   }
@@ -210,22 +214,16 @@ export async function summary(now = Date.now()) {
 /** One cycle: score what closed, then issue if the interval is due. Safe to call from several processes: a lock file keeps it single-writer. */
 export async function runCycle(): Promise<void> {
   try {
-    const raw = await fs.readFile(LOCK_FILE, 'utf8').catch(() => '');
-    const [pid, at] = raw.split(':').map(Number);
-    let alive = false;
-    if (pid && Date.now() - at < 15 * 60_000) { try { process.kill(pid, 0); alive = pid !== process.pid; } catch { alive = false; } }
-    if (alive) return;
     await fs.mkdir(DATASETS_DIR, { recursive: true });
-    await fs.writeFile(LOCK_FILE, `${process.pid}:${Date.now()}`);
-    const scored = await scoreDue();
-    const { issues } = await readRecord();
-    const last = issues.length ? Date.parse(issues[issues.length - 1].issued_utc) : 0;
-    let issued = 0;
-    if (Date.now() - last >= ISSUE_EVERY_H * HOUR) issued = await issueForecasts();
-    if (scored || issued) console.log(`[DINGIR] wildfire forecast cycle: scored ${scored}, issued ${issued}`);
+    await withLock(LOCK_FILE, async () => {
+      const scored = await scoreDue();
+      const { issues } = await readRecord();
+      const last = issues.length ? Date.parse(issues[issues.length - 1].issued_utc) : 0;
+      let issued = 0;
+      if (Date.now() - last >= ISSUE_EVERY_H * HOUR) issued = await issueForecasts();
+      if (scored || issued) console.log(`[DINGIR] wildfire forecast cycle: scored ${scored}, issued ${issued}`);
+    });
   } catch (e) {
     console.warn('[DINGIR] wildfire forecast cycle failed:', e instanceof Error ? e.message : e);
-  } finally {
-    await fs.rm(LOCK_FILE, { force: true }).catch(() => undefined);
   }
 }
