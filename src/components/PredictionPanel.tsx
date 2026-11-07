@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Loader2, Maximize2, Minimize2, ExternalLink, AlertTriangle, Download, Settings, History, ChevronRight } from 'lucide-react';
+import { X, Loader2, Maximize2, Minimize2, ExternalLink, AlertTriangle, Download, Settings, History, ChevronRight, Activity, Flame, TrendingUp, Wind, Orbit } from 'lucide-react';
 import { useLocale } from '@/lib/LocaleProvider';
 import {
   buildChain, type MainshockForecast, type ForecastMethod, type ChainStep, type ChainStage,
@@ -357,7 +357,7 @@ export default function PredictionPanel({ onClose, onInspect, offsetRight = 0, o
                 <div key={domain.id} onClick={() => { if (domain.id === 'seismic' || domain.id === 'wildfire' || domain.id === 'markets' || domain.id === 'space' || domain.id === 'weather') setDom(domain.id); }} title={`${domain.evidence} · next: ${domain.next}`}
                   className={`min-w-0 rounded-lg border px-2.5 py-2 ${live ? `cursor-pointer ${domain.id === dom ? 'border-[#00f5c4] bg-[#0d1a1c]' : 'border-[#00f5c4]/35 bg-[#0d1a1c]'}` : 'border-dashed border-white/15 bg-[#0d1420]'}`}>
                   <div className="flex items-center justify-between gap-1">
-                    <span className="truncate text-[10px] tracking-wider text-white">{domain.label}</span>
+                    <span className="flex min-w-0 items-center gap-1.5 text-[10px] tracking-wider text-white">{(() => { const I = { seismic: Activity, wildfire: Flame, markets: TrendingUp, weather: Wind, space: Orbit }[domain.id as string]; const col = { seismic: '#ff6b6b', wildfire: '#ff9f43', markets: '#5ea8ff', weather: '#4dd0e1', space: '#b388ff' }[domain.id as string]; return I ? <I className="h-3.5 w-3.5 shrink-0" style={{ color: col }} /> : null; })()}<span className="truncate">{domain.label}</span></span>
                     <span className={`shrink-0 text-[8px] font-semibold ${style.className}`}>{live ? 'LIVE' : 'BUILDING'}</span>
                   </div>
                   <div className="mt-1 text-[10px] leading-snug text-[#e4e8ef]">{domain.question}</div>
