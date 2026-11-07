@@ -37,14 +37,14 @@ function Card({ r, scored }: { r: WildfireRow; scored?: boolean }) {
   return (
     <div className="mx-3 my-2.5 rounded-lg border border-white/10 bg-[#0d1420] px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[12px] text-white tabular-nums">{r.lat.toFixed(2)}°, {r.lng.toFixed(2)}°</span>
+        <span className="text-[12px] text-white tabular-nums">{r.lat.toFixed(2)}°, {r.lng.toFixed(2)}° <span className="ml-2 text-[#ff9f43]">{r.detections_24h} detections · {Math.round(r.frp_sum).toLocaleString('en-US')} MW</span></span>
         <span className="text-[11px] tabular-nums text-[#e4e8ef]">{p}% chance it keeps burning</span>
       </div>
       <div className="mt-2 h-1.5 w-full rounded-full bg-white/10">
         <div className="h-1.5 rounded-full bg-[#ff9f43]" style={{ width: `${p}%` }} />
       </div>
       <div className="mt-2 text-[10px] leading-snug text-[#c3c8d2]">
-        {r.detections_24h} satellite detections in the last 24 h · fire power {Math.round(r.frp_sum)} MW
+        satellite detections in the last 24 h, grouped with fires of the same size{r.band ? ` (${r.band})` : ''}
         {r.base_n ? ` · based on ${r.base_n} similar fires` : ''}
       </div>
       <div className="mt-1 text-[10px] text-[#c3c8d2]">window {winText(r.window_utc)}</div>
