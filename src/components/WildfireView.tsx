@@ -7,7 +7,7 @@ export interface WildfireRow {
   id: string; lat: number; lng: number; detections_24h: number; frp_sum: number;
   p_keeps_burning: number; band?: string; base_n?: number; issued_utc?: string;
   window_utc?: [string, string] | { from: string; to: string } | string[];
-  kept_burning?: boolean; detections_in_window?: number;
+  result?: { kept_burning: boolean; detections_in_window: number };
 }
 export interface WildfireSummary {
   issued: number; scored: number; hits: number; mean_p: number | null; brier: number | null;
@@ -48,10 +48,10 @@ function Card({ r, scored }: { r: WildfireRow; scored?: boolean }) {
         {r.base_n ? ` · based on ${r.base_n} similar fires` : ''}
       </div>
       <div className="mt-1 text-[10px] text-[#c3c8d2]">window {winText(r.window_utc)}</div>
-      {scored && typeof r.kept_burning === 'boolean' && (
-        <div className={`mt-2 text-[11px] ${r.kept_burning ? 'text-[#00f5c4]' : 'text-[#ffd166]'}`}>
-          {r.kept_burning ? 'Held: it kept burning' : 'Missed: it burned out'}
-          {typeof r.detections_in_window === 'number' ? ` (${r.detections_in_window} detections in the window)` : ''}
+      {scored && r.result && (
+        <div className={`mt-2 text-[11px] ${r.result.kept_burning ? 'text-[#00f5c4]' : 'text-[#ffd166]'}`}>
+          {r.result.kept_burning ? 'Held: it kept burning' : 'Missed: it burned out'}
+          {` (${r.result.detections_in_window} detections in the window)`}
         </div>
       )}
     </div>

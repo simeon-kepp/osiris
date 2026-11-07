@@ -4,6 +4,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   if (process.env.NODE_ENV !== 'production' && process.env.WILDFIRE_FORECAST !== '1') return;
   const { runCycle } = await import('@/lib/fire-forecast');
+  const market = await import('@/lib/market-forecast');
   setTimeout(() => { void runCycle(); }, 45_000);
+  setTimeout(() => { void market.runCycle(); }, 90_000);
   setInterval(() => { void runCycle(); }, 10 * 60_000).unref();
+  setInterval(() => { void market.runCycle(); }, 30 * 60_000).unref();
 }
