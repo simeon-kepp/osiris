@@ -13,11 +13,26 @@ const store = new Map<string, Entry>();
 // keyOf() puts the query string in the key, so a client can mint keys at will. Cap the map.
 const MAX_ENTRIES = 300;
 const inflight = new Map<string, Promise<Entry>>();
+// 2026-11-09: /api/news never answered although every upstream replied in <300 ms. Suspected cause: one
+// call that never settles stays in `inflight` and every later request joins it. Longest honest handler
+// seen is ~23 s; this cap frees the key and logs which one hung.
+const HANDLER_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, key: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      console.error(`[routeCache] ${key} gave no answer within ${ms} ms, freeing the key`);
+      reject(new Error(`routeCache: ${key} timed out`));
+    }, ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
 
 async function run(key: string, handler: () => Promise<Response>): Promise<Entry> {
   const existing = inflight.get(key);
   if (existing) return existing;
-  const p = (async () => {
+  const p = withTimeout((async () => {
     const res = await handler();
     const entry: Entry = {
       body: await res.text(),
@@ -36,7 +51,7 @@ async function run(key: string, handler: () => Promise<Response>): Promise<Entry
       store.set(key, entry);
     }
     return entry;
-  })().finally(() => inflight.delete(key));
+  })(), HANDLER_TIMEOUT_MS, key).finally(() => inflight.delete(key));
   inflight.set(key, p);
   return p;
 }

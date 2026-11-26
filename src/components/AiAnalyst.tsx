@@ -560,9 +560,11 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
   }, []);
 
   // Auto-scroll to bottom
+  // Smooth only for a single new message. While an answer streams in this runs every frame, and a
+  // restarted smooth scroll plus a second jump per frame made the panel shake.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth', block: 'end' });
+  }, [messages, isLoading]);
 
   // Focus input when opened
   useEffect(() => {
@@ -633,7 +635,6 @@ export default function AiAnalyst({ data, graphEnabled, offsetRight = 64, focusN
       const paint = () => {
         frame = 0;
         setMessages(prev => prev.map(m => (m.id === analystId ? { ...m, content: text } : m)));
-        messagesEndRef.current?.scrollIntoView({ block: 'end' });
       };
       let started = false;
       let finished = false;
